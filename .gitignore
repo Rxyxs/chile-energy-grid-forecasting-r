@@ -17,3 +17,7 @@ Rplots.pdf
 .idea/
 .DS_Store
 Thumbs.db
+
+# Internal notes / assistant config (not for publication)
+CLAUDE.md
+.claude/
