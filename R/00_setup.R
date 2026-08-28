@@ -17,7 +17,10 @@ required_packages <- c(
   "fabletools",  # utilidades compartidas de fable/feasts (accuracy, glance, etc.)
   "ggtime",      # autoplot() para objetos dcmp_ts/tbl_cf (movido aqui en versiones recientes)
   "rugarch",     # modelos GARCH para volatilidad
-  "tseries"      # test de Dickey-Fuller aumentado (ADF)
+  "tseries",     # test de Dickey-Fuller aumentado (ADF)
+  "forecast",    # TBATS (multiple seasonalidades sin aproximacion de Fourier)
+  "rmarkdown",   # renderiza 02_Residual_Autocorrelation_Fourier.Rmd a HTML
+  "knitr"        # motor de chunks usado por rmarkdown
 )
 
 installed <- rownames(installed.packages())

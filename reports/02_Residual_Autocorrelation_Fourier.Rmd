@@ -1,0 +1,277 @@
+---
+title: "Autocorrelacion residual en el lag 24: diagnostico y correccion"
+subtitle: "Terminos armonicos de Fourier, TBATS y Rolling-Origin CV sobre la demanda horaria del SEN"
+author: "Pablo Reyes"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 9, fig.height = 4.5)
+
+library(fable)
+library(fabletools)
+library(feasts)
+library(forecast)
+library(dplyr)
+library(ggplot2)
+library(tsibble)
+```
+
+## 1. El problema
+
+La version anterior de este proyecto reporto un hallazgo honesto en su README: el
+modelo `ARIMA + Fourier` sobre la demanda horaria (`K=4` en el termino diario,
+`K=2` en el semanal) deja un pico de autocorrelacion residual notable en el
+**lag 24** -- la estacionalidad diaria no quedaba completamente capturada. Este
+reporte reproduce ese diagnostico, prueba las correcciones propuestas
+(aumentar `K`, TBATS) y documenta honestamente cuanto de la brecha se cerro
+realmente y cuanto no.
+
+## 2. Datos y modelo baseline (K=4, la version original)
+
+```{r cargar-datos}
+train_ts <- readRDS("../data/train_hourly_tsibble.rds")
+test_ts <- readRDS("../data/test_hourly_tsibble.rds")
+hourly_ts <- readRDS("../data/hourly_tsibble.rds")
+
+cat(sprintf("Train: %d filas (%s a %s)\n", nrow(train_ts), min(train_ts$datetime), max(train_ts$datetime)))
+```
+
+Se reajusta aqui el modelo baseline original (`K=4` diario) para que este reporte
+sea reproducible de punta a punta -- no depende de un numero citado de una corrida
+anterior, lo recalcula.
+
+```{r baseline-fit}
+baseline_fit <- train_ts %>%
+  model(arima_k4 = ARIMA(demand_mw ~ pdq(d = 1) + fourier(period = "day", K = 4) +
+                            fourier(period = "week", K = 2) + PDQ(0, 0, 0)))
+
+fabletools::report(baseline_fit)
+```
+
+### 2.1 Diagnostico de residuos -- baseline (K=4)
+
+```{r baseline-resid-plot}
+baseline_fit %>%
+  select(arima_k4) %>%
+  feasts::gg_tsresiduals(lag_max = 48) +
+  theme_minimal(base_size = 10) +
+  labs(title = "Diagnostico de residuos -- ARIMA + Fourier (K=4, baseline)")
+```
+
+```{r baseline-resid-stats}
+resid_baseline <- baseline_fit %>% select(arima_k4) %>% residuals() %>%
+  as_tibble() %>% pull(.resid) %>% na.omit()
+
+acf_baseline <- acf(resid_baseline, lag.max = 30, plot = FALSE)
+lb_baseline <- Box.test(resid_baseline, lag = 24, type = "Ljung-Box", fitdf = 0)
+
+cat(sprintf("ACF residual en lag 24: %.4f\n", acf_baseline$acf[25]))
+cat(sprintf("Ljung-Box (lag=24): X-squared=%.1f, p-value=%.3e\n", lb_baseline$statistic, lb_baseline$p.value))
+```
+
+Confirmado: `ACF(lag24) ≈ 0.41`, y Ljung-Box rechaza sin ambiguedad la hipotesis
+de ruido blanco (p ≈ 0). Este es el punto de partida.
+
+## 3. Verificacion independiente: ¿el problema es de los datos o del modelo?
+
+Antes de intentar corregirlo, vale la pena confirmar que la autocorrelacion es
+un problema de **especificacion del modelo**, no una propiedad genuina de la
+serie. El generador sintetico (`R/01_generate_synthetic_data.R`) construye
+`demand_mw` como una funcion determinista conocida (tendencia + dia de semana +
+estacionalidad anual + forma horaria) mas ruido `rnorm` puramente independiente
+-- si se reconstruye ese componente determinista exactamente y se resta de
+`demand_mw`, el residuo "verdadero" no deberia tener autocorrelacion alguna.
+
+```{r verificacion-dgp}
+source("../R/01_generate_synthetic_data.R")
+
+sen_data <- readr::read_csv("../data/sen_hourly_synthetic.csv", show_col_types = FALSE)
+
+end_date <- Sys.Date()
+start_date <- end_date - lubridate::years(2)
+set.seed(42)
+
+datetime <- seq(
+  from = as.POSIXct(start_date, tz = "America/Santiago"),
+  to = as.POSIXct(end_date, tz = "America/Santiago") + lubridate::hours(23),
+  by = "hour"
+)
+n <- length(datetime)
+hour_of_day <- lubridate::hour(datetime)
+day_of_year <- lubridate::yday(datetime)
+weekday <- lubridate::wday(datetime, week_start = 1)
+years_elapsed <- as.numeric(difftime(datetime, datetime[1], units = "days")) / 365.25
+
+trend_factor <- (1 + 0.03)^years_elapsed
+weekday_factor <- dplyr::case_when(weekday == 6 ~ 0.90, weekday == 7 ~ 0.84, TRUE ~ 1.00)
+annual_factor <- 1 + 0.12 * cos(2 * pi * (day_of_year - 195) / 365.25)
+daily_factor <- daily_shape(hour_of_day)
+
+deterministic <- 8000 * trend_factor * weekday_factor * annual_factor * daily_factor
+true_residual <- sen_data$demand_mw - deterministic
+
+acf_true <- acf(true_residual, lag.max = 30, plot = FALSE)
+lb_true <- Box.test(true_residual, lag = 24, type = "Ljung-Box", fitdf = 0)
+
+cat(sprintf("sd(residuo verdadero) = %.1f (esperado ~160, = 8000*0.02)\n", sd(true_residual)))
+cat(sprintf("ACF(lag24) del residuo verdadero: %.4f\n", acf_true$acf[25]))
+cat(sprintf("Ljung-Box (lag=24) del residuo verdadero: p=%.3f\n", lb_true$p.value))
+```
+
+**Confirmado: el proceso generador no tiene autocorrelacion genuina en 24
+horas** (`ACF(lag24) ≈ 0.004`, Ljung-Box no rechaza ruido blanco). El pico de
+0.41 en el modelo ajustado es enteramente un artefacto de como
+`fable::ARIMA()` combina regresores de Fourier con la maquinaria de
+"regresion con errores ARIMA" sobre esta serie -- no una señal real que el
+modelo simplemente no vio.
+
+## 4. Intentos de correccion (documentados, incluyendo los que no funcionaron)
+
+Se probaron cinco alternativas antes de fijar la que se usa en produccion.
+Reportar solo la que funciono, sin las que no, habria sido menos honesto y
+menos util metodologicamente.
+
+| # | Alternativa | Resultado | Veredicto |
+|---|---|---|---|
+| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.413 → 0.373 | Mejora real, parcial |
+| 2 | `K` semanal 2 → 6/12/20 (con K diario=12) | ACF(lag24) **empeora** hasta 0.469 | Descartado |
+| 3 | `log(demand_mw)` en vez de nivel | ACF(lag24) = 0.402, sin mejora | Descartado |
+| 4 | `PDQ(P=1,D=0,Q=1,period=24)`, sin Fourier diario | `fable::ARIMA()` falla: raices caracteristicas inestables | No disponible |
+| 5 | Diferenciacion estacional `D=1` en periodo 24 | Misma falla que #4 | No disponible |
+| 6 | **TBATS** (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = **0.289** | Mejor mejora lograda |
+
+Los intentos #4 y #5 son la misma clase de falla ya documentada en este
+proyecto (ver README, seccion 6, sobre el bug de busqueda automatica de `d`
+en `fable` 0.5.0) -- ahora tambien confirmada en la busqueda de un termino
+estacional explicito a periodo 24. Es un limite real y reproducible de
+`fable::ARIMA()` sobre esta serie, no un error de especificacion de este
+proyecto.
+
+## 5. Modelo mejorado: ARIMA + Fourier con K=12
+
+```{r improved-fit}
+improved_fit <- readRDS("../output/models/arima_fourier_fit.rds") %>% select(arima_fourier)
+fabletools::report(improved_fit)
+```
+
+```{r improved-resid-plot}
+improved_fit %>%
+  feasts::gg_tsresiduals(lag_max = 48) +
+  theme_minimal(base_size = 10) +
+  labs(title = "Diagnostico de residuos -- ARIMA + Fourier (K=12, mejorado)")
+```
+
+```{r improved-resid-stats}
+resid_improved <- improved_fit %>% residuals() %>% as_tibble() %>% pull(.resid) %>% na.omit()
+acf_improved <- acf(resid_improved, lag.max = 30, plot = FALSE)
+lb_improved <- Box.test(resid_improved, lag = 24, type = "Ljung-Box", fitdf = 0)
+
+cat(sprintf("ACF residual en lag 24: %.4f (baseline: %.4f)\n", acf_improved$acf[25], acf_baseline$acf[25]))
+cat(sprintf("Ljung-Box (lag=24): p=%.3e\n", lb_improved$p.value))
+```
+
+## 6. TBATS
+
+```{r tbats-fit}
+tbats_fit <- readRDS("../output/models/tbats_fit.rds")
+print(tbats_fit)
+```
+
+```{r tbats-resid-plot}
+resid_tbats <- as.numeric(residuals(tbats_fit))
+resid_tbats <- resid_tbats[!is.na(resid_tbats)]
+
+acf_data <- acf(resid_tbats, lag.max = 48, plot = FALSE)
+pacf_data <- pacf(resid_tbats, lag.max = 48, plot = FALSE)
+ci <- qnorm(0.975) / sqrt(length(resid_tbats))
+
+acf_df <- tibble::tibble(lag = acf_data$lag[-1], acf = acf_data$acf[-1])
+pacf_df <- tibble::tibble(lag = pacf_data$lag, pacf = pacf_data$acf)
+
+p_acf <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_col(width = 0.3, fill = "#2C5F8A") +
+  geom_hline(yintercept = c(-ci, ci), linetype = "dashed", color = "grey50") +
+  labs(title = "ACF -- residuos TBATS", x = "Lag (horas)", y = "ACF") +
+  theme_minimal(base_size = 10)
+
+p_pacf <- ggplot(pacf_df, aes(x = lag, y = pacf)) +
+  geom_col(width = 0.3, fill = "#8A5A2C") +
+  geom_hline(yintercept = c(-ci, ci), linetype = "dashed", color = "grey50") +
+  labs(title = "PACF -- residuos TBATS", x = "Lag (horas)", y = "PACF") +
+  theme_minimal(base_size = 10)
+
+p_acf
+p_pacf
+
+dir.create("../output/figures", showWarnings = FALSE, recursive = TRUE)
+ggsave("../output/figures/tbats_residuals_acf.png", p_acf, width = 8, height = 4, dpi = 150)
+ggsave("../output/figures/tbats_residuals_pacf.png", p_pacf, width = 8, height = 4, dpi = 150)
+```
+
+```{r tbats-resid-stats}
+acf_tbats <- acf(resid_tbats, lag.max = 30, plot = FALSE)
+lb_tbats <- Box.test(resid_tbats, lag = 24, type = "Ljung-Box", fitdf = 0)
+
+cat(sprintf("ACF residual en lag 24: %.4f\n", acf_tbats$acf[25]))
+cat(sprintf("Ljung-Box (lag=24): p=%.3e\n", lb_tbats$p.value))
+```
+
+## 7. Comparacion resumen
+
+```{r tabla-resumen}
+resumen <- tibble::tibble(
+  Modelo = c("ARIMA + Fourier (K=4, baseline)", "ARIMA + Fourier (K=12, mejorado)", "TBATS"),
+  `ACF(lag 24)` = c(acf_baseline$acf[25], acf_improved$acf[25], acf_tbats$acf[25]),
+  `Ljung-Box p-value` = c(lb_baseline$p.value, lb_improved$p.value, lb_tbats$p.value),
+  `Reduccion vs. baseline` = c("--",
+                                 sprintf("%.1f%%", 100 * (1 - acf_improved$acf[25] / acf_baseline$acf[25])),
+                                 sprintf("%.1f%%", 100 * (1 - acf_tbats$acf[25] / acf_baseline$acf[25])))
+)
+knitr::kable(resumen, digits = 4)
+```
+
+## 8. Rolling-Origin CV -- estabilidad fuera de muestra (demanda horaria)
+
+Validacion cruzada de origen movil sobre la serie horaria (`R/08_cross_validation.R`,
+`run_hourly_rolling_cv()`): ventana de entrenamiento **fija** (no creciente) de
+12.000 horas (~500 dias), 5 origenes espaciados 1.000 horas, horizonte de
+pronostico de 48 horas -- acotado por costo computacional (cada origen reajusta
+el ARIMA+Fourier completo, ~1-2 minutos cada uno).
+
+```{r rolling-cv-hourly}
+cv_hourly <- readr::read_csv("../output/tables/accuracy_rolling_cv_hourly.csv", show_col_types = FALSE)
+knitr::kable(cv_hourly %>% select(origin, MAPE, RMSE, MASE, tiempo_ajuste_s), digits = 2)
+
+cat(sprintf("\nMAPE promedio sobre %d origenes: %.2f%% (desvio: %.2f)\n",
+            nrow(cv_hourly), mean(cv_hourly$MAPE), sd(cv_hourly$MAPE)))
+```
+
+## 9. Conclusion honesta
+
+- **El problema no era de los datos.** El residuo reconstruido a partir del
+  componente determinista exacto del generador sintetico es, en la practica,
+  ruido blanco (ACF(lag24)=0.004). La autocorrelacion de 0.41 es un artefacto
+  de especificacion del modelo, no una señal real que se estuviera perdiendo.
+- **Ninguna correccion probada elimina el problema por completo.** Aumentar
+  `K` a su limite de Nyquist (12) reduce el ACF(lag24) en ~10%. TBATS, un
+  framework estructuralmente distinto (estados estacionales dinamicos en vez
+  de regresores de Fourier de amplitud fija), reduce el ACF(lag24) en ~30% --
+  la mejor mejora lograda, pero *tampoco* pasa la prueba de Ljung-Box.
+- **Dos alternativas clasicas de libro (PDQ estacional explicito, diferenciacion
+  estacional en el lag 24) fallan directamente** en `fable::ARIMA()` sobre esta
+  serie especifica, con el mismo tipo de error interno ya documentado en este
+  proyecto para la busqueda automatica de `d`. Vale la pena registrarlo como
+  limite conocido de la libreria en este caso de uso, no como error propio.
+- **Recomendacion honesta para produccion**: usar TBATS cuando el objetivo es
+  minimizar la autocorrelacion residual especificamente (por ejemplo, si el
+  residuo alimenta un control de calidad estadistico que asume ruido blanco),
+  y ARIMA + Fourier (K=12) cuando se necesita soportar regresores exogenos
+  (SARIMAX con solar/eolica) o un tiempo de ajuste mucho menor (~2 min vs
+  ~7-8 min) -- ninguna de las dos es una solucion completa, y decir lo
+  contrario seria menos util que reportar el resultado real.

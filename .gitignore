@@ -5,6 +5,12 @@ output/models/*.rds
 output/tables/*.csv
 output/figures/*.png
 
+# Reporte generado (reproducible via rmarkdown::render(), ver README)
+reports/*.html
+reports/*_files/
+reports/*.knit.md
+reports/*_cache/
+
 # R
 .Rhistory
 .RData
