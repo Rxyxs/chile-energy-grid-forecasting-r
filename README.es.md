@@ -385,12 +385,6 @@ Los tres modelos de nivel (ARIMA+Fourier, SARIMAX, ETS) superan de forma consist
 - El backtest de SARIMAX usa los valores reales conocidos de generación solar/eólica del período de holdout, no un pronóstico de ellos -- en producción, el error del pronóstico meteorológico se propagaría al pronóstico de demanda neta, y valdría la pena cuantificar esa propagación explícitamente.
 - El GARCH se aplicó solo al componente eólico; extenderlo al precio marginal/costo operacional del sistema (que en el SEN real también exhibe clustering de volatilidad, impulsado por niveles de embalses hidroeléctricos y disponibilidad renovable) es una extensión natural con datos reales.
 
-## 9. Autor
-
-**Pablo Reyes** -- Científico de Datos, Universidad Mayor -- [github.com/Rxyxs](https://github.com/Rxyxs)
-
----
-
 ## Apéndice: instalación y uso
 
 Requiere R 4.4+ (probado en 4.4.0 y 4.6.1).
@@ -435,3 +429,7 @@ chile-energy-grid-forecasting-r/
 ### Disclaimer de datos
 
 Todos los datos son **100% sintéticos**, generados por `R/01_generate_synthetic_data.R` con semilla fija. Las cifras de capacidad/demanda (demanda base ~8.000 MW, capacidad solar ~3.500 MW, capacidad eólica ~2.500 MW) son órdenes de magnitud ilustrativos del SEN, no datos operacionales reales del CEN. El CEN, sus responsabilidades, y la existencia del SEN como sistema interconectado nacional son hechos públicos reales -- ninguna cifra de generación/demanda específica en este repositorio proviene de sus reportes operacionales.
+
+## Autor
+
+**Pablo Reyes** -- Científico de Datos, Universidad Mayor -- [github.com/Rxyxs](https://github.com/Rxyxs)
