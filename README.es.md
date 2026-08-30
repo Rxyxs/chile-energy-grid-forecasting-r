@@ -31,6 +31,33 @@ Me interesa este problema porque combina dos cosas que rara vez conviven en un s
 
 Este proyecto construye el stack estadístico completo para abordar ambos problemas con las herramientas correctas para cada uno: modelos ARIMA/SARIMAX y de espacio de estados para el nivel esperado de demanda, y un modelo GARCH explícito para la volatilidad de la generación renovable -- no como un anexo cosmético, sino como la pieza que conecta el pronóstico de nivel con el riesgo real de estabilidad de red.
 
+### 2.1 Impacto de Negocio e Indicadores Clave (KPIs)
+
+| Métrica | Resultado | Qué significa |
+|---|---|---|
+| Mejor pronóstico horario de demanda (TBATS) | 2,47% MAPE, 284 RMSE | 2,2x más preciso que la línea base seasonal-naive (6,54% MAPE) |
+| Pronóstico de demanda neta con solar/eólico exógenos (SARIMAX) | 6,68% MAPE, MASE 0,85 | Ataca directamente el problema de riesgo de rampa ("curva de pato"), no solo la demanda bruta |
+| Demanda diaria, CV de origen rodante (ETS vs. naive) | 0,43% vs. 1,09% MAPE | La ventaja real de ETS solo aparece bajo CV apropiada -- un solo holdout favorecía engañosamente a naive (§7.1) |
+| Recuperación de volatilidad eólica GARCH(1,1) | α₁ 0,142 (real 0,15), persistencia 0,954 (real 0,95) | Confirma que el modelo de volatilidad está bien ajustado, no solo que "el código corre" |
+| Autocorrelación residual lag-24, mejor corrección encontrada | 0,41 → 0,29 (TBATS) | Reportado honestamente como una corrección parcial, no completa -- ningún modelo probado la elimina del todo (§7.3) |
+
+### 2.2 Arquitectura del Pipeline
+
+```mermaid
+flowchart LR
+    A[01_generate_synthetic_data.R<br/>viento via GARCH, demanda multi-estacional] --> B[02_stationarity_tests.R<br/>ADF + KPSS]
+    B --> C[04_stl_decomposition.R<br/>estacionalidad diaria/semanal]
+    C --> D1[ARIMA + Fourier /<br/>SARIMAX exogeno]
+    C --> D2[ETS espacio de estados]
+    C --> D3[TBATS]
+    A --> E[GARCH 1,1<br/>volatilidad eolica]
+    D1 --> F[08_cross_validation.R<br/>CV de origen rodante]
+    D2 --> F
+    D3 --> F
+    E --> G[(pronostico + volatilidad<br/>output/figures, output/tables)]
+    F --> G
+```
+
 ## 3. Marco teórico
 
 ### 3.1 ARIMA y SARIMAX

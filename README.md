@@ -31,6 +31,33 @@ I'm drawn to this problem because it combines two things that rarely coexist in 
 
 This project builds the full statistical stack to address both problems with the right tool for each: ARIMA/SARIMAX and state-space models for the expected level of demand, and an explicit GARCH model for renewable-generation volatility -- not as a cosmetic add-on, but as the piece that connects level forecasting to actual grid-stability risk.
 
+### 2.1 Business Impact & Key Performance Indicators
+
+| Metric | Result | What it means |
+|---|---|---|
+| Best hourly demand forecast (TBATS) | 2.47% MAPE, 284 RMSE | 2.2x more accurate than the seasonal-naive baseline (6.54% MAPE) |
+| Net-demand forecast with solar/wind exogenous (SARIMAX) | 6.68% MAPE, MASE 0.85 | Directly targets the "duck curve" ramp-risk problem, not just gross demand |
+| Daily demand, rolling-origin CV (ETS vs. naive) | 0.43% vs. 1.09% MAPE | ETS's real advantage only shows up under proper CV -- a single holdout misleadingly favored naive (§7.1) |
+| GARCH(1,1) wind-volatility recovery | α₁ 0.142 (true 0.15), persistence 0.954 (true 0.95) | Confirms the volatility model is fit correctly, not just "the code runs" |
+| Residual lag-24 autocorrelation, best fix found | 0.41 → 0.29 (TBATS) | Honestly reported as a partial, not complete, fix -- no model tried eliminates it fully (§7.3) |
+
+### 2.2 Pipeline Architecture
+
+```mermaid
+flowchart LR
+    A[01_generate_synthetic_data.R<br/>GARCH-driven wind, multi-seasonal demand] --> B[02_stationarity_tests.R<br/>ADF + KPSS]
+    B --> C[04_stl_decomposition.R<br/>daily/weekly seasonality]
+    C --> D1[ARIMA + Fourier /<br/>SARIMAX exogenous]
+    C --> D2[ETS state-space]
+    C --> D3[TBATS]
+    A --> E[GARCH 1,1<br/>wind volatility]
+    D1 --> F[08_cross_validation.R<br/>rolling-origin CV]
+    D2 --> F
+    D3 --> F
+    E --> G[(forecast + volatility<br/>output/figures, output/tables)]
+    F --> G
+```
+
 ## 3. Theoretical framework
 
 ### 3.1 ARIMA and SARIMAX
