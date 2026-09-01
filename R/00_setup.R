@@ -20,7 +20,8 @@ required_packages <- c(
   "tseries",     # test de Dickey-Fuller aumentado (ADF)
   "forecast",    # TBATS (multiple seasonalidades sin aproximacion de Fourier)
   "rmarkdown",   # renderiza 02_Residual_Autocorrelation_Fourier.Rmd a HTML
-  "knitr"        # motor de chunks usado por rmarkdown
+  "knitr",       # motor de chunks usado por rmarkdown
+  "testthat"     # tests unitarios (tests/testthat.R)
 )
 
 installed <- rownames(installed.packages())

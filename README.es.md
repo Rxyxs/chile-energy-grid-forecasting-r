@@ -397,6 +397,15 @@ Rscript run_pipeline.R    # corre los 9 pasos de punta a punta (TBATS + CV horar
 Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')"  # opcional, §6.1
 ```
 
+### Ejecutando los tests
+
+`tests/testthat/` cubre las funciones puras de generación y transformación de datos (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) que no requieren un modelo ajustado: estacionariedad/reproducibilidad de la simulación GARCH(1,1), el perfil horario de doble punta, invariantes del dataset sintético (demanda neta, generación no negativa, solar nula de noche), y la agregación de tsibbles horario/diario (relleno de gaps, agrupación y totales correctos).
+
+```powershell
+Rscript -e "install.packages('testthat', repos='https://cloud.r-project.org')"  # una vez
+Rscript tests/testthat.R
+```
+
 ### Estructura del repositorio
 
 ```
@@ -414,6 +423,9 @@ chile-energy-grid-forecasting-r/
 │   └── 09_generate_plots.R             # residuos, pronósticos con bandas, volatilidad
 ├── reports/
 │   └── 02_Residual_Autocorrelation_Fourier.Rmd  # diagnóstico del lag 24, ACF/PACF, escrito honesto (§6.1, §7.3)
+├── tests/
+│   ├── testthat.R                      # runner de tests (Rscript tests/testthat.R)
+│   └── testthat/                       # tests unitarios de generación + transformación de datos
 ├── run_pipeline.R                      # orquestador (subprocesos Rscript)
 ├── data/                               # CSVs + tsibbles .rds (generado, en .gitignore)
 ├── output/
