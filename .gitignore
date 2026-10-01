@@ -3,7 +3,12 @@ data/*.csv
 data/*.rds
 output/models/*.rds
 output/tables/*.csv
-output/figures/*.png
+
+# output/figures/*.png NO se ignora: el README las referencia y documenta por
+# nombre, asi que tienen que renderizar en GitHub sin correr el pipeline. Son
+# reproducibles igual -- el generador esta semillado (set.seed en
+# R/01_generate_synthetic_data.R), asi que `Rscript run_pipeline.R` las
+# reconstruye identicas.
 
 # Reporte generado (reproducible via rmarkdown::render(), ver README)
 reports/*.html

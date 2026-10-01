@@ -139,12 +139,18 @@ menos util metodologicamente.
 
 | # | Alternativa | Resultado | Veredicto |
 |---|---|---|---|
-| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.413 → 0.373 | Mejora real, parcial |
+| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.4069 → 0.3675 | Mejora real, parcial (-9.7%) |
 | 2 | `K` semanal 2 → 6/12/20 (con K diario=12) | ACF(lag24) **empeora** hasta 0.469 | Descartado |
 | 3 | `log(demand_mw)` en vez de nivel | ACF(lag24) = 0.402, sin mejora | Descartado |
 | 4 | `PDQ(P=1,D=0,Q=1,period=24)`, sin Fourier diario | `fable::ARIMA()` falla: raices caracteristicas inestables | No disponible |
 | 5 | Diferenciacion estacional `D=1` en periodo 24 | Misma falla que #4 | No disponible |
-| 6 | **TBATS** (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = **0.289** | Mejor mejora lograda |
+| 6 | **TBATS** (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = **0.1588** | Mejor mejora lograda (-61.0%) |
+
+Las filas 1 y 6 de esta tabla son valores escritos a mano. La tabla calculada de la
+seccion 7 los recomputa desde los modelos guardados en cada render, asi que es ella
+la que manda: si difieren, la de la seccion 7 es la correcta y esta quedo atrasada.
+Las filas 2-5 vienen de ajustes exploratorios que no quedaron en el pipeline
+numerado, y por eso no se recomputan en ningun lado.
 
 Los intentos #4 y #5 son la misma clase de falla ya documentada en este
 proyecto (ver README, seccion 6, sobre el bug de busqueda automatica de `d`
@@ -259,9 +265,9 @@ cat(sprintf("\nMAPE promedio sobre %d origenes: %.2f%% (desvio: %.2f)\n",
   ruido blanco (ACF(lag24)=0.004). La autocorrelacion de 0.41 es un artefacto
   de especificacion del modelo, no una señal real que se estuviera perdiendo.
 - **Ninguna correccion probada elimina el problema por completo.** Aumentar
-  `K` a su limite de Nyquist (12) reduce el ACF(lag24) en ~10%. TBATS, un
+  `K` a su limite de Nyquist (12) reduce el ACF(lag24) en 9.7%. TBATS, un
   framework estructuralmente distinto (estados estacionales dinamicos en vez
-  de regresores de Fourier de amplitud fija), reduce el ACF(lag24) en ~30% --
+  de regresores de Fourier de amplitud fija), lo reduce en 61.0% --
   la mejor mejora lograda, pero *tampoco* pasa la prueba de Ljung-Box.
 - **Dos alternativas clasicas de libro (PDQ estacional explicito, diferenciacion
   estacional en el lag 24) fallan directamente** en `fable::ARIMA()` sobre esta

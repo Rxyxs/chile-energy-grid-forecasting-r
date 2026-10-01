@@ -334,20 +334,42 @@ The previous version of this project flagged a real limitation and left it for f
 
 | # | Attempt | Result | Verdict |
 |---|---|---|---|
-| 1 | Daily Fourier `K`: 4 → 12 (Nyquist limit for period 24) | ACF(lag24): 0.413 → 0.373 | Real, partial improvement |
+| 1 | Daily Fourier `K`: 4 → 12 (Nyquist limit for period 24) | ACF(lag24): 0.4069 → 0.3675 | Real, partial improvement (-9.7%) |
 | 2 | Weekly Fourier `K`: 2 → 6/12/20 (with daily K=12) | ACF(lag24) **worsens** to 0.469 | Discarded |
 | 3 | `log(demand_mw)` instead of level | ACF(lag24) = 0.402, no improvement | Discarded |
 | 4 | `PDQ(P=1,D=0,Q=1,period=24)`, no daily Fourier | `fable::ARIMA()` fails: unstable characteristic roots | Unavailable (Methodological note 2, §6) |
 | 5 | Seasonal differencing `D=1` at period 24 | Same failure as #4 | Unavailable |
-| 6 | **TBATS** (dynamic seasonal states, no Fourier/differencing) | ACF(lag24) = **0.289** | Best improvement found |
+| 6 | **TBATS** (dynamic seasonal states, no Fourier/differencing) | ACF(lag24) = **0.1588** | Best improvement found (-61.0%) |
 
-**The honest bottom line: no fix tried eliminates the autocorrelation completely.** `K=12` gets a real but modest ~10% reduction and keeps SARIMAX exogenous-regressor support. TBATS gets a substantially larger ~30% reduction (and, per §7.1, is also the most accurate point forecaster) but has no exogenous-regressor analogue and costs ~4x the fit time. Both `arima_fourier` (K=12) and TBATS are shipped in `output/models/`, so a user can pick based on what their use case needs -- interpretable regressors and speed (Fourier), or minimizing residual autocorrelation and headline accuracy (TBATS) -- rather than this project asserting one universally "correct" answer.
+**Reproduction note (run of 2026-10-01, R 4.6.1 / `forecast` 9.0.2).** Rows 1 and 6 were re-measured from a full `Rscript run_pipeline.R`, twice: once through `reports/02_Residual_Autocorrelation_Fourier.Rmd` and once through a separate script reading the saved models directly. The ARIMA figures reproduce the previously recorded ones to within about 1% (0.413 → 0.4069, 0.373 → 0.3675). **TBATS does not: the table used to claim 0.289, and the measured value is 0.1588.**
 
-![ACF de residuos -- ARIMA + Fourier K=12 (improved)](output/figures/residuals_arima.png)
+That gap was a documentation error, not model drift. `output/figures/tbats_residuals_acf.png` was generated during the original TBATS work and has not been regenerated since — and the lag-24 spike it shows has always been ≈0.16, matching today's measurement, not 0.289. The number in the prose was never one this code produced. It is corrected here, which makes the project's best result substantially *better* than it had been claiming: a 61.0% reduction rather than ~30%.
+
+Rows 2–5 come from exploratory fits that are not part of the numbered pipeline and were **not** re-run in this round, so they still carry their original values and have not been checked the same way.
+
+**The honest bottom line: no fix tried eliminates the autocorrelation completely** -- the Ljung-Box test still rejects white noise at lag 24 for all three models (p < 1e-15), including TBATS. `K=12` gets a real but modest 9.7% reduction and keeps SARIMAX exogenous-regressor support. TBATS gets a much larger 61.0% reduction (and, per §7.1, is also the most accurate point forecaster) but has no exogenous-regressor analogue and costs ~4x the fit time. Both `arima_fourier` (K=12) and TBATS are shipped in `output/models/`, so a user can pick based on what their use case needs -- interpretable regressors and speed (Fourier), or minimizing residual autocorrelation and headline accuracy (TBATS) -- rather than this project asserting one universally "correct" answer.
+
+![Residual diagnostics -- ARIMA + Fourier K=12](output/figures/residuals_arima.png)
+
+**How to read it**: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise well behaved: centred, roughly symmetric, no trend. That combination is the point. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.
+
+The TBATS alternative reduces that same spike to 0.1588, visible in `output/figures/tbats_residuals_acf.png` alongside its PACF.
 
 ### 7.4 Generated figures
 
-All in `output/figures/`, produced by `R/04_stl_decomposition.R` and `R/09_generate_plots.R`:
+![STL decomposition of hourly SEN demand](output/figures/stl_decomposition.png)
+
+The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel shows the annual cycle at a ~2,000 MW amplitude, peaking in winter. And the `season_day` panel is a *solid black band* — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:
+
+![Two-week detail of hourly demand](output/figures/demand_two_week_zoom.png)
+
+At two weeks the real shape appears: a double peak each weekday (morning and evening) separated by a midday dip, with weekends visibly lower and flatter. The double peak is what makes `K=4` insufficient as a daily Fourier basis — four harmonics cannot represent two peaks per cycle plus the asymmetry between them, which is the mechanism behind the lag-24 residual spike that §7.3 is about.
+
+![ARIMA + Fourier forecast with 80%/95% uncertainty bands](output/figures/forecast_arima_demand.png)
+
+Ten days of training context followed by fourteen days forecast. The model keeps the double-peak shape through the whole horizon. Note the asymmetry of the bands: they are tight around the peaks and much wider around the overnight troughs, so the forecast is considerably less certain about how low demand goes at night than about how high it goes during the day.
+
+All figures live in `output/figures/`, produced by `R/04_stl_decomposition.R` and `R/09_generate_plots.R`:
 
 - `stl_decomposition.png` -- trend + daily seasonal + weekly seasonal + remainder decomposition
 - `demand_two_week_zoom.png` -- 2-week detail (the full decomposition at 2 years of hourly resolution looks like a solid band; this plot shows the actual double-peak shape)
@@ -375,7 +397,7 @@ Extends §7.1's fixed hourly holdout with `run_hourly_rolling_cv()` (`R/08_cross
 
 All three level models (ARIMA+Fourier, SARIMAX, ETS) consistently beat their respective naive baselines when evaluated correctly -- MASE < 1 for ARIMA, SARIMAX, and ETS-under-CV confirms this formally, not just visually. The finding in §7.1 (SNAIVE wins on one holdout, ETS wins under CV) is itself the most valuable methodological result of the project: it validates why rolling-origin cross-validation, not a single split, should be the standard when comparing time-series models. GARCH(1,1) recovers the true simulation parameters almost exactly, confirming that "simulate with known structure, then re-fit" is a valid way to check that a statistical pipeline works end to end.
 
-**The lag-24 investigation (§7.3) is this round's most valuable result, and it's a partial one, reported as such:** increasing Fourier `K` to its Nyquist limit and fitting TBATS both measurably reduce the residual autocorrelation the previous version flagged (TBATS: -30%, also the best point-forecast accuracy in §7.1) -- but neither eliminates it, and independently verifying against the synthetic generator's own deterministic formula confirmed the true data has no such dependency at all, so the remaining gap is squarely a `fable`/TBATS modeling-framework limitation on this series, not an unaddressed feature of the data.
+**The lag-24 investigation (§7.3) is this round's most valuable result, and it's a partial one, reported as such:** increasing Fourier `K` to its Nyquist limit and fitting TBATS both measurably reduce the residual autocorrelation the previous version flagged (TBATS: -61.0%, also the best point-forecast accuracy in §7.1) -- but neither eliminates it, and independently verifying against the synthetic generator's own deterministic formula confirmed the true data has no such dependency at all, so the remaining gap is squarely a `fable`/TBATS modeling-framework limitation on this series, not an unaddressed feature of the data.
 
 **Value for SEN operators:** a net-demand forecast with renewable exogenous inputs (SARIMAX) plus an explicit wind-volatility model (GARCH) gives two complementary inputs a grid operator needs: *how much* energy is expected to be needed, and *how uncertain* the ramps tied to renewable generation are -- the latter is precisely what informs how much fast-ramping reserve to keep on hand.
 

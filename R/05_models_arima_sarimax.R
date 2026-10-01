@@ -22,7 +22,7 @@
 # lag 24 (ACF~0.41, ver reports/02_Residual_Autocorrelation_Fourier.Rmd para el
 # diagnostico completo). Se probaron 5 alternativas antes de fijar esta:
 #   1. K=4 -> K=12 diario (Nyquist, base completa para un ciclo de 24 horas):
-#      ACF(lag24) baja de 0.413 a 0.373 -- mejora real pero parcial.
+#      ACF(lag24) baja de 0.4069 a 0.3675 (-9.7%) -- mejora real pero parcial.
 #   2. Aumentar K semanal (2 -> 6/12/20): EMPEORA el ACF(lag24) (hasta 0.469) --
 #      descartado, no es la via.
 #   3. log(demand_mw) en vez de nivel: sin mejora (ACF(lag24)=0.402).
@@ -43,7 +43,11 @@
 # grande lograble dentro de esa maquinaria sin toparse con el bug de arriba;
 # TBATS (fit_tbats_demand(), un framework de espacio de estados enteramente
 # distinto, sin regresores de Fourier ni diferenciacion) logra una reduccion
-# mayor (ACF(lag24)=0.289) precisamente porque no depende de esa maquinaria.
+# mayor (ACF(lag24)=0.1588, -61.0% vs el baseline K=4) precisamente porque no
+# depende de esa maquinaria. Este comentario decia 0.289 hasta el 2026-10-01;
+# era un error de documentacion -- la figura tbats_residuals_acf.png, generada
+# en el trabajo original de TBATS, siempre mostro el pico en ~0.16 (ver "Nota
+# de reproduccion" en el README).
 
 library(fable)
 library(fabletools)
