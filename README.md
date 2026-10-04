@@ -371,6 +371,8 @@ Ten days of training context followed by fourteen days forecast. The model keeps
 
 All figures live in `output/figures/`, produced by `R/04_stl_decomposition.R` and `R/09_generate_plots.R`:
 
+**A note for anyone regenerating these.** The figure labels are in English because `README.md` is the document GitHub shows by default and both language versions embed the same PNGs. The date axis needed more than translating strings: `ggplot2` formats it with the generating machine’s locale, so on an `es-CL` install it came out as `sept. 21`. Both plotting scripts now pin `Sys.setlocale("LC_TIME", "C")` — the same class of leak that invariant formatting prevents in file I/O.
+
 - `stl_decomposition.png` -- trend + daily seasonal + weekly seasonal + remainder decomposition
 - `demand_two_week_zoom.png` -- 2-week detail (the full decomposition at 2 years of hourly resolution looks like a solid band; this plot shows the actual double-peak shape)
 - `stl_acf_demand.png`, `stl_acf_remainder.png`, `stl_pacf_demand.png` -- ACF/PACF

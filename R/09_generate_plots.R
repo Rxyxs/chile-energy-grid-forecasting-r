@@ -8,6 +8,15 @@ library(ggtime)
 library(ggplot2)
 library(dplyr)
 
+# Los rotulos de estas figuras van en ingles porque README.md -- el documento
+# que GitHub muestra por defecto -- es el ingles, y las dos versiones del README
+# incrustan los mismos PNG. El locale de fechas tambien: sin esto, el eje sale
+# con los meses de la maquina que genera ("sept. 21" en una instalacion en
+# espanol), que es la misma clase de fuga que FormattableString.Invariant evita
+# en el I/O de archivos.
+Sys.setlocale("LC_TIME", "C")
+
+
 #' Diagnostico de residuos de un modelo (ACF + histograma + serie de tiempo).
 plot_residual_diagnostics <- function(fit, model_name, path) {
   p <- fit %>%
@@ -46,9 +55,9 @@ plot_garch_volatility_forecast <- function(csv_path, png_path) {
     geom_line(color = "#8A5A2C", linewidth = 0.7) +
     geom_point(size = 1.2, color = "#8A5A2C") +
     labs(
-      title = "Volatilidad condicional pronosticada -- generación eólica",
-      subtitle = "GARCH(1,1) sobre los shocks eólicos horarios",
-      x = "Horas hacia adelante", y = "Sigma pronosticada (MW)"
+      title = "Forecast conditional volatility -- wind generation",
+      subtitle = "GARCH(1,1) on hourly wind shocks",
+      x = "Hours ahead", y = "Forecast sigma (MW)"
     ) +
     theme_minimal(base_size = 11)
 
@@ -76,7 +85,7 @@ if (sys.nframe() == 0) {
     arima_fit, "arima_fourier", train_hourly, "demand_mw",
     horizon = 14 * 24, display_history = 10 * 24,
     path = "output/figures/forecast_arima_demand.png",
-    titulo = "Pronóstico de demanda horaria -- ARIMA + Fourier (bandas 80%/95%)"
+    titulo = "Hourly demand forecast -- ARIMA + Fourier (80%/95% bands)"
   )
 
   cat("Generando pronostico con bandas (ETS, contexto 90 dias + 28 dias pronosticados)...\n")
@@ -85,7 +94,7 @@ if (sys.nframe() == 0) {
     ets_fit, "ets", train_daily, "demand_mw_mean",
     horizon = 28, display_history = 90,
     path = "output/figures/forecast_ets_daily.png",
-    titulo = "Pronóstico de demanda diaria promedio -- ETS(M,A,M) (bandas 80%/95%)"
+    titulo = "Mean daily demand forecast -- ETS(M,A,M) (80%/95% bands)"
   )
 
   cat("Generando grafico de volatilidad GARCH...\n")

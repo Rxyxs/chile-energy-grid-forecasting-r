@@ -8,6 +8,15 @@ library(ggtime)   # autoplot() para objetos dcmp_ts / tbl_cf (movido aqui desde 
 library(ggplot2)
 library(dplyr)
 
+# Los rotulos de estas figuras van en ingles porque README.md -- el documento
+# que GitHub muestra por defecto -- es el ingles, y las dos versiones del README
+# incrustan los mismos PNG. El locale de fechas tambien: sin esto, el eje sale
+# con los meses de la maquina que genera ("sept. 21" en una instalacion en
+# espanol), que es la misma clase de fuga que FormattableString.Invariant evita
+# en el I/O de archivos.
+Sys.setlocale("LC_TIME", "C")
+
+
 #' Ajusta una descomposicion STL con estacionalidad diaria y semanal.
 fit_stl_decomposition <- function(hourly_ts) {
   hourly_ts %>%
@@ -20,8 +29,8 @@ plot_stl_decomposition <- function(stl_model, path) {
     generics::components() %>%
     autoplot() +
     labs(
-      title = "Descomposición STL de la demanda horaria del SEN",
-      subtitle = "Tendencia + estacionalidad diaria + estacionalidad semanal + remanente"
+      title = "STL decomposition of hourly SEN demand",
+      subtitle = "Trend + daily seasonality + weekly seasonality + remainder"
     ) +
     theme_minimal(base_size = 11)
 
@@ -40,9 +49,9 @@ plot_two_week_zoom <- function(hourly_ts, path) {
     ggplot(aes(x = datetime, y = demand_mw)) +
     geom_line(color = "#2C5F8A", linewidth = 0.5) +
     labs(
-      title = "Demanda horaria -- detalle de las últimas 2 semanas",
-      subtitle = "Curva de doble punta (mañana / noche) y menor demanda en fines de semana",
-      x = NULL, y = "Demanda (MW)"
+      title = "Hourly demand -- detail of the last 2 weeks",
+      subtitle = "Double-peak curve (morning / evening) and lower weekend demand",
+      x = NULL, y = "Demand (MW)"
     ) +
     theme_minimal(base_size = 11)
 
@@ -55,21 +64,21 @@ plot_acf_pacf <- function(hourly_ts, stl_components, path_prefix) {
   p_acf_raw <- hourly_ts %>%
     ACF(demand_mw, lag_max = 72) %>%
     autoplot() +
-    labs(title = "ACF -- Demanda horaria (nivel)") +
+    labs(title = "ACF -- Hourly demand (level)") +
     theme_minimal(base_size = 11)
   ggsave(paste0(path_prefix, "_acf_demand.png"), p_acf_raw, width = 8, height = 4, dpi = 150)
 
   p_pacf_raw <- hourly_ts %>%
     PACF(demand_mw, lag_max = 72) %>%
     autoplot() +
-    labs(title = "PACF -- Demanda horaria (nivel)") +
+    labs(title = "PACF -- Hourly demand (level)") +
     theme_minimal(base_size = 11)
   ggsave(paste0(path_prefix, "_pacf_demand.png"), p_pacf_raw, width = 8, height = 4, dpi = 150)
 
   p_acf_remainder <- stl_components %>%
     ACF(remainder, lag_max = 72) %>%
     autoplot() +
-    labs(title = "ACF -- Remanente de la descomposición STL") +
+    labs(title = "ACF -- STL decomposition remainder") +
     theme_minimal(base_size = 11)
   ggsave(paste0(path_prefix, "_acf_remainder.png"), p_acf_remainder, width = 8, height = 4, dpi = 150)
 

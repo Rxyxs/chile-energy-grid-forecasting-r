@@ -371,6 +371,8 @@ Diez días de contexto de entrenamiento seguidos de catorce pronosticados. El mo
 
 Todos los gráficos viven en `output/figures/`, generados por `R/04_stl_decomposition.R` y `R/09_generate_plots.R`:
 
+**Una nota para quien regenere estos gráficos.** Los rótulos están en inglés porque `README.md` es el documento que GitHub muestra por defecto y las dos versiones del README incrustan los mismos PNG. El eje de fechas necesitó más que traducir cadenas: `ggplot2` lo formatea con el locale de la máquina que genera, así que en una instalación `es-CL` salía como `sept. 21`. Los dos scripts de graficado ahora fijan `Sys.setlocale("LC_TIME", "C")` — la misma clase de fuga que el formateo invariante evita en el I/O de archivos.
+
 - `stl_decomposition.png` -- descomposición tendencia + estacional diaria + estacional semanal + remanente
 - `demand_two_week_zoom.png` -- detalle de 2 semanas (la descomposición completa a 2 años de resolución horaria se ve como una banda sólida; este gráfico muestra la forma real de doble punta)
 - `stl_acf_demand.png`, `stl_acf_remainder.png`, `stl_pacf_demand.png` -- ACF/PACF

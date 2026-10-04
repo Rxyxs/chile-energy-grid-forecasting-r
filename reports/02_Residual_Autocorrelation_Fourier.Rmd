@@ -203,13 +203,13 @@ pacf_df <- tibble::tibble(lag = pacf_data$lag, pacf = pacf_data$acf)
 p_acf <- ggplot(acf_df, aes(x = lag, y = acf)) +
   geom_col(width = 0.3, fill = "#2C5F8A") +
   geom_hline(yintercept = c(-ci, ci), linetype = "dashed", color = "grey50") +
-  labs(title = "ACF -- residuos TBATS", x = "Lag (horas)", y = "ACF") +
+  labs(title = "ACF -- TBATS residuals", x = "Lag (hours)", y = "ACF") +
   theme_minimal(base_size = 10)
 
 p_pacf <- ggplot(pacf_df, aes(x = lag, y = pacf)) +
   geom_col(width = 0.3, fill = "#8A5A2C") +
   geom_hline(yintercept = c(-ci, ci), linetype = "dashed", color = "grey50") +
-  labs(title = "PACF -- residuos TBATS", x = "Lag (horas)", y = "PACF") +
+  labs(title = "PACF -- TBATS residuals", x = "Lag (hours)", y = "PACF") +
   theme_minimal(base_size = 10)
 
 p_acf
