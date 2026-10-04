@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  testthat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "release"
+          use-public-rspm: true
+
+      # Solo las cinco que los tests necesitan de verdad. El proyecto completo
+      # depende ademas de fable, feasts, forecast, rugarch y ggtime, pero esas
+      # entran en el pipeline de modelado -- no en tests/testthat/, que cubre
+      # la generacion de datos sinteticos y el wrangling. Instalarlas igual
+      # agregaria varios minutos por corrida sin verificar una linea mas.
+      #
+      # use-public-rspm sirve binarios precompilados para Ubuntu, que es la
+      # diferencia entre un job de un minuto y uno de quince compilando desde
+      # fuente.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::testthat
+            any::dplyr
+            any::lubridate
+            any::tibble
+            any::tsibble
+
+      - name: Run testthat suite
+        run: Rscript tests/testthat.R
