@@ -35,5 +35,24 @@ jobs:
             any::tibble
             any::tsibble
 
+      # Verificado localmente: con un test fallando, tests/testthat.R sale con
+      # codigo 1, asi que un job verde si significa que las aserciones pasaron.
       - name: Run testthat suite
         run: Rscript tests/testthat.R
+
+      # Lo que el codigo de salida NO distingue es "todo paso" de "no se
+      # descubrio ningun test" -- un archivo renombrado o un patron de busqueda
+      # roto dejarian el badge verde sin verificar nada. Esto cuenta los
+      # resultados y falla si son cero.
+      - name: Assert the suite actually ran
+        run: |
+          Rscript -e '
+            res <- testthat::test_dir("tests/testthat", reporter = "silent", stop_on_failure = FALSE)
+            df <- as.data.frame(res)
+            total <- sum(df$nb)
+            cat("Aserciones ejecutadas:", total, "en", nrow(df), "bloques test_that\n")
+            if (total < 1) {
+              cat("::error::testthat no descubrio ninguna asercion\n")
+              quit(status = 1)
+            }
+          '
