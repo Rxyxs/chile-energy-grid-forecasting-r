@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚡ Statistical Forecasting of Energy Demand and Grid Stability in Chile&#x27;s SEN</title>
+<meta name="description" content="**An end-to-end R project -- ARIMA/SARIMAX, STL decomposition, state space models (ETS), and GARCH -- on the tidyverts/fable ecosystem**">
+<style>
+  :root { --bg:#FBFAF8; --surface:#FFF; --ink:#23201D; --muted:#6B645D; --line:#E3DED7; --accent:#B5553D; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#171614; --surface:#201E1B; --ink:#EDE9E3; --muted:#A9A29A; --line:#322E2A; --accent:#D9765C; } }
+  :root[data-theme="dark"] { --bg:#171614; --surface:#201E1B; --ink:#EDE9E3; --muted:#A9A29A; --line:#322E2A; --accent:#D9765C; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.68 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:900px; margin:0 auto; padding:0 16px 88px; }
+  header { padding:60px 0 32px; border-bottom:1px solid var(--line); margin-bottom:36px; }
+  h1 { font-size:clamp(1.7rem,5vw,2.4rem); line-height:1.16; margin:0 0 18px; letter-spacing:-.02em; }
+  .lede { font-size:clamp(1rem,2.3vw,1.1rem); color:var(--muted); margin:0 0 22px; max-width:62ch; }
+  .lede strong { color:var(--ink); }
+  .links a { display:inline-block; margin:0 9px 9px 0; padding:9px 15px; border:1px solid var(--line);
+    border-radius:7px; text-decoration:none; color:var(--ink); background:var(--surface); font-size:.9rem;
+    transition:border-color .15s; }
+  .links a:hover { border-color:var(--accent); }
+  h2 { font-size:1.3rem; margin:48px 0 8px; padding-top:12px; border-top:1px solid var(--line); letter-spacing:-.01em; }
+  figure { margin:22px 0; }
+  figure img { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:9px; background:#fff; }
+  figcaption { font-size:.85rem; color:var(--muted); margin-top:9px; max-width:70ch; }
+  p { margin:0 0 16px; max-width:70ch; }
+  code { background:var(--surface); border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:.86em;
+    font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+  footer { margin-top:60px; padding-top:22px; border-top:1px solid var(--line); font-size:.86rem; color:var(--muted); }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>⚡ Statistical Forecasting of Energy Demand and Grid Stability in Chile&#x27;s SEN</h1>
+<p class="lede"><strong>An end-to-end R project -- ARIMA/SARIMAX, STL decomposition, state space models (ETS), and GARCH -- on the tidyverts/fable ecosystem</strong></p>
+<div class="links">
+<a href="https://github.com/Rxyxs/chile-energy-grid-forecasting-r">Code and method</a>
+<a href="https://github.com/Rxyxs/chile-energy-grid-forecasting-r#readme">Full README</a>
+</div></header>
+<p>This page shows the project's results. The methodology, the design decisions and the limitations are documented in the repository's README.</p>
+<h2>7.3 Residual diagnostics -- the lag-24 investigation</h2>
+<figure>
+<img src="figures/residuals_arima.png" alt="Residual diagnostics -- ARIMA + Fourier K=12" loading="lazy">
+<figcaption><strong>How to read it</strong>: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise well behaved: centred, roughly symmetric, no trend. That combination is the point. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.</figcaption>
+</figure>
+<h2>7.4 Generated figures</h2>
+<figure>
+<img src="figures/stl_decomposition.png" alt="STL decomposition of hourly SEN demand" loading="lazy">
+<figcaption>The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel shows the annual cycle at a ~2,000 MW amplitude, peaking in winter. And the <code>season_day</code> panel is a *solid black band* — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:</figcaption>
+</figure>
+<figure>
+<img src="figures/demand_two_week_zoom.png" alt="Two-week detail of hourly demand" loading="lazy">
+<figcaption>At two weeks the real shape appears: a double peak each weekday (morning and evening) separated by a midday dip, with weekends visibly lower and flatter. The double peak is what makes <code>K=4</code> insufficient as a daily Fourier basis — four harmonics cannot represent two peaks per cycle plus the asymmetry between them, which is the mechanism behind the lag-24 residual spike that §7.3 is about.</figcaption>
+</figure>
+<figure>
+<img src="figures/forecast_arima_demand.png" alt="ARIMA + Fourier forecast with 80%/95% uncertainty bands" loading="lazy">
+<figcaption>Ten days of training context followed by fourteen days forecast. The model keeps the double-peak shape through the whole horizon. Note the asymmetry of the bands: they are tight around the peaks and much wider around the overnight troughs, so the forecast is considerably less certain about how low demand goes at night than about how high it goes during the day.</figcaption>
+</figure>
+<footer>
+Pablo Reyes · <a href="https://github.com/Rxyxs/chile-energy-grid-forecasting-r">github.com/Rxyxs/chile-energy-grid-forecasting-r</a> · MIT<br><br>
+Every figure on this page is produced by the repository's pipeline. For the full method and its limitations, see the README.
+</footer>
+</div></body></html>
