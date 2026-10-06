@@ -39,7 +39,7 @@ This project builds the full statistical stack to address both problems with the
 | Net-demand forecast with solar/wind exogenous (SARIMAX) | 6.68% MAPE, MASE 0.85 | Directly targets the "duck curve" ramp-risk problem, not just gross demand |
 | Daily demand, rolling-origin CV (ETS vs. naive) | 0.43% vs. 1.09% MAPE | ETS's real advantage only shows up under proper CV -- a single holdout misleadingly favored naive (§7.1) |
 | GARCH(1,1) wind-volatility recovery | α₁ 0.142 (true 0.15), persistence 0.954 (true 0.95) | Confirms the volatility model is fit correctly, not just "the code runs" |
-| Residual lag-24 autocorrelation, best fix found | 0.41 → 0.29 (TBATS) | Honestly reported as a partial, not complete, fix -- no model tried eliminates it fully (§7.3) |
+| Residual lag-24 autocorrelation, best fix found | 0.41 → 0.16 (TBATS) | Honestly reported as a partial, not complete, fix -- no model tried eliminates it fully (§7.3) |
 
 ### 2.2 Pipeline Architecture
 

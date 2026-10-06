@@ -39,7 +39,7 @@ Este proyecto construye el stack estadístico completo para abordar ambos proble
 | Pronóstico de demanda neta con solar/eólico exógenos (SARIMAX) | 6,68% MAPE, MASE 0,85 | Ataca directamente el problema de riesgo de rampa ("curva de pato"), no solo la demanda bruta |
 | Demanda diaria, CV de origen rodante (ETS vs. naive) | 0,43% vs. 1,09% MAPE | La ventaja real de ETS solo aparece bajo CV apropiada -- un solo holdout favorecía engañosamente a naive (§7.1) |
 | Recuperación de volatilidad eólica GARCH(1,1) | α₁ 0,142 (real 0,15), persistencia 0,954 (real 0,95) | Confirma que el modelo de volatilidad está bien ajustado, no solo que "el código corre" |
-| Autocorrelación residual lag-24, mejor corrección encontrada | 0,41 → 0,29 (TBATS) | Reportado honestamente como una corrección parcial, no completa -- ningún modelo probado la elimina del todo (§7.3) |
+| Autocorrelación residual lag-24, mejor corrección encontrada | 0,41 → 0,16 (TBATS) | Reportado honestamente como una corrección parcial, no completa -- ningún modelo probado la elimina del todo (§7.3) |
 
 ### 2.2 Arquitectura del Pipeline
 
