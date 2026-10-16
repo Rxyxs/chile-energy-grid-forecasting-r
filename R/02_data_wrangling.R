@@ -38,7 +38,7 @@ build_daily_tsibble <- function(hourly_tsibble) {
 if (sys.nframe() == 0) {
   source("R/01_generate_synthetic_data.R")
 
-  sen_data <- readr::read_csv("data/sen_hourly_synthetic.csv", show_col_types = FALSE)
+  sen_data <- readr::read_csv("data/sen_hourly.csv", show_col_types = FALSE)
   hourly_ts <- build_hourly_tsibble(sen_data)
   daily_ts <- build_daily_tsibble(hourly_ts)
 
