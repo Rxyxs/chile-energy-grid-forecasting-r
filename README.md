@@ -4,7 +4,7 @@
 
 **An end-to-end R project -- ARIMA/SARIMAX, STL decomposition, state space models (ETS), and GARCH -- on the tidyverts/fable ecosystem**
 
-🌐 **[Español](README.es.md)** | **[English](README.md)**
+[English ] | [[Español](README.es.md) ]
 
 [![R](https://img.shields.io/badge/R-4.4%2F4.6-276DC3)](https://www.r-project.org/)
 [![fable](https://img.shields.io/badge/tidyverts-fable%20%7C%20feasts%20%7C%20tsibble-2C5F8A)](https://fable.tidyverts.org/)

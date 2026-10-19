@@ -4,7 +4,7 @@
 
 **Un proyecto de extremo a extremo en R -- ARIMA/SARIMAX, descomposición STL, modelos de espacio de estados (ETS) y GARCH -- sobre el ecosistema tidyverts/fable**
 
-🌐 **[Español](README.es.md)** | **[English](README.md)**
+[[English](README.md) ] | [Español ]
 
 [![R](https://img.shields.io/badge/R-4.4%2F4.6-276DC3)](https://www.r-project.org/)
 [![fable](https://img.shields.io/badge/tidyverts-fable%20%7C%20feasts%20%7C%20tsibble-2C5F8A)](https://fable.tidyverts.org/)
