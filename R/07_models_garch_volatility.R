@@ -1,9 +1,13 @@
-# Modelo GARCH(1,1) sobre los shocks de generacion eolica -- la variabilidad de la
-# generacion renovable (nubosidad, rachas de viento) es precisamente lo que genera
-# riesgo de estabilidad de red (rampas rapidas de demanda neta cuando el sol/viento
-# caen). El componente eolico se SIMULO explicitamente como un proceso GARCH(1,1) en
-# 01_generate_synthetic_data.R, asi que aqui se verifica que rugarch puede recuperar
-# ese clustering de volatilidad real a partir de los datos observados.
+# Modelo GARCH(1,1) sobre los cambios horarios de la generacion eolica -- la variabilidad
+# de la generacion renovable (rachas de viento, frentes) es precisamente lo que genera
+# riesgo de estabilidad de red (rampas rapidas de demanda neta).
+#
+# Con la eolica anclada a viento real (ERA5), la desviacion del nivel respecto de su media
+# horaria esta fuertemente autocorrelacionada (el viento persiste por horas), y un GARCH
+# ajustado sobre ese nivel degenera (alpha1 ~ 0.92, beta1 ~ 0.07): esta modelando la
+# persistencia del nivel, no la de la volatilidad. Por eso se ajusta sobre la primera
+# diferencia (cambio hora a hora, la "rampa"), que es la innovacion casi no
+# autocorrelacionada que un GARCH supone.
 
 library(rugarch)
 library(dplyr)
@@ -20,17 +24,12 @@ fit_garch11 <- function(shock_series) {
 }
 
 if (sys.nframe() == 0) {
-  sen_data <- readr::read_csv("data/sen_hourly_synthetic.csv", show_col_types = FALSE)
+  sen_data <- readr::read_csv("data/sen_hourly.csv", show_col_types = FALSE)
 
-  # Los shocks eolicos (desviacion del nivel base horario esperado) son la serie de
-  # interes -- reconstruimos una aproximacion restando la componente diurna promedio.
-  wind_by_hour <- sen_data %>%
-    mutate(hour_of_day = lubridate::hour(datetime)) %>%
-    group_by(hour_of_day) %>%
-    mutate(wind_hour_mean = mean(wind_mw)) %>%
-    ungroup()
-
-  wind_shock <- wind_by_hour$wind_mw - wind_by_hour$wind_hour_mean
+  # Rampas eolicas: cambio de la generacion eolica de una hora a la siguiente (MW/h).
+  wind_shock <- diff(sen_data$wind_mw)
+  cat(sprintf("Autocorrelacion lag 1 -- nivel: %.3f | cambio horario: %.3f\n",
+              acf(sen_data$wind_mw, plot = FALSE)$acf[2], acf(wind_shock, plot = FALSE)$acf[2]))
 
   cat("Ajustando GARCH(1,1) sobre los shocks de generacion eolica...\n")
   garch_fit <- fit_garch11(wind_shock)
@@ -57,7 +56,7 @@ if (sys.nframe() == 0) {
   )
 
   cat(sprintf(
-    "\nVolatilidad condicional pronosticada: %.1f MW (h+1) -> %.1f MW (h+48)\n",
+    "\nVolatilidad condicional de las rampas eolicas: %.1f MW/h (h+1) -> %.1f MW/h (h+48)\n",
     sigma_forecast[1], sigma_forecast[48]
   ))
 }

@@ -35,17 +35,17 @@ This project builds the full statistical stack to address both problems with the
 
 | Metric | Result | What it means |
 |---|---|---|
-| Best hourly demand forecast (TBATS) | 2.47% MAPE, 284 RMSE | 2.2x more accurate than the seasonal-naive baseline (6.54% MAPE) |
-| Net-demand forecast with solar/wind exogenous (SARIMAX) | 6.68% MAPE, MASE 0.85 | Directly targets the "duck curve" ramp-risk problem, not just gross demand |
-| Daily demand, rolling-origin CV (ETS vs. naive) | 0.43% vs. 1.09% MAPE | ETS's real advantage only shows up under proper CV -- a single holdout misleadingly favored naive (§7.1) |
-| GARCH(1,1) wind-volatility recovery | α₁ 0.142 (true 0.15), persistence 0.954 (true 0.95) | Confirms the volatility model is fit correctly, not just "the code runs" |
-| Residual lag-24 autocorrelation, best fix found | 0.41 → 0.16 (TBATS) | Honestly reported as a partial, not complete, fix -- no model tried eliminates it fully (§7.3) |
+| Best hourly demand forecast (TBATS) | 4.28% MAPE, 468 RMSE | 1.6x more accurate than the seasonal-naive baseline (6.73% MAPE) |
+| Net-demand forecast with solar/wind exogenous (SARIMAX) | RMSE 800 vs. 1,080 naive, MASE 0.66 | Beats naive on RMSE and MASE; its MAPE (23%) is inflated by midday hours where real solar pushes net demand to the floor (§7.1) |
+| Daily demand, rolling-origin CV (ETS vs. naive) | 0.77% vs. 1.38% MAPE | ETS also wins the single 28-day holdout now (2.22% vs. 3.85%) |
+| GARCH(1,1) on hourly wind ramps | α₁ 0.010, β₁ 0.989, persistence 0.999 | Real wind-ramp volatility clusters for days; fitted on real (ERA5-driven) wind, not on a simulated GARCH |
+| Residual lag-24 autocorrelation, best fix found | 0.388 → 0.347 (Fourier K=12) | A partial fix; TBATS, which fixed most of it on the old simulated series, no longer helps (§7.3) |
 
 ### 2.2 Pipeline Architecture
 
 ```mermaid
 flowchart LR
-    A[01_generate_synthetic_data.R<br/>GARCH-driven wind, multi-seasonal demand] --> B[02_stationarity_tests.R<br/>ADF + KPSS]
+    A[01_generate_synthetic_data.R<br/>real weather + real monthly SEN energy] --> B[02_stationarity_tests.R<br/>ADF + KPSS]
     B --> C[04_stl_decomposition.R<br/>daily/weekly seasonality]
     C --> D1[ARIMA + Fourier /<br/>SARIMAX exogenous]
     C --> D2[ETS state-space]
@@ -109,7 +109,7 @@ with $\omega > 0$, $\alpha_1, \beta_1 \geq 0$, and $\alpha_1 + \beta_1 < 1$ for 
 ### 4.1 Data flow
 
 ```
-R/01_generate_synthetic_data.R   →  data/sen_hourly_synthetic.csv
+R/01_generate_synthetic_data.R   →  data/sen_hourly.csv (anchored to data/real/)
         (dplyr-based generator)      (demand, solar, wind, net demand)
               ↓
 R/02_data_wrangling.R            →  data/hourly_tsibble.rds
@@ -147,13 +147,13 @@ ADF (H0: unit root / non-stationary) and KPSS (H0: stationary) are run together 
 
 | Series | ADF (stat, p) | ADF conclusion | KPSS (stat, p) | KPSS conclusion |
 |---|---|---|---|---|
-| Hourly demand (level) | -10.98, 0.01 | Stationary | 13.38, 0.01 | **Non-stationary** |
-| Hourly demand (1st diff.) | -24.14, 0.01 | Stationary | 0.003, 0.10 | Stationary |
-| Hourly net demand (level) | -8.46, 0.01 | Stationary | 12.41, 0.01 | **Non-stationary** |
-| Daily mean demand (level) | -1.65, 0.73 | **Non-stationary** | 2.27, 0.01 | Non-stationary |
-| Daily mean demand (1st diff.) | -4.61, 0.01 | Stationary | 0.40, 0.076 | Stationary |
+| Hourly demand (level) | -17.38, 0.01 | Stationary | 0.50, 0.041 | **Non-stationary** |
+| Hourly demand (1st diff.) | -24.30, 0.01 | Stationary | 0.000, 0.10 | Stationary |
+| Hourly net demand (level) | -16.11, 0.01 | Stationary | 3.49, 0.01 | **Non-stationary** |
+| Daily mean demand (level) | -3.50, 0.042 | Stationary | 0.44, 0.059 | Stationary |
+| Daily mean demand (1st diff.) | -8.65, 0.01 | Stationary | 0.24, 0.10 | Stationary |
 
-**A real, non-forced finding:** ADF and KPSS *disagree* on the level of hourly demand -- a textbook case of **trend-stationarity** (the series is stationary around a deterministic trend+seasonal pattern, but not stationary in pure mean). Differencing once resolves the disagreement at both resolutions (both tests agree on the differenced series). This directly informs `d = 1` in the ARIMA specification in §6.
+**ADF and KPSS disagree on the level of hourly demand and net demand** -- the textbook sign of trend-stationarity (stationary around a deterministic seasonal pattern, not in pure mean). Differencing once resolves it. With the real monthly scaling, daily mean demand is now borderline stationary in level (ADF p = 0.042, KPSS p = 0.059): the real SEN has little year-on-year trend over 2024-2025, unlike the old simulator's fixed 3% growth.
 
 ### 5.2 Multiple seasonality detection
 
@@ -161,22 +161,22 @@ STL decomposition (`season(period = "day") + season(period = "week")`) on hourly
 
 | Component | Variance |
 |---|---|
-| Daily seasonality | 2,560,793 |
-| Trend | 537,086 |
-| Weekly seasonality | 278,189 |
-| Remainder | 23,233 |
+| Daily seasonality | 3,702,111 |
+| Weekly seasonality | 397,113 |
+| Trend | 71,510 |
+| Remainder | 40,463 |
 
-Daily seasonality dominates by a wide margin (the morning/evening double-peak shape), and the remainder is small relative to the structural components -- a sign that most of the variance is explainable, not noise.
+Daily seasonality dominates by a wide margin (the morning/evening double-peak shape). The trend's share fell sharply compared with the old simulated series (537,086): real monthly SEN energy moves much less over 2024-2025 than the simulator's growth trend plus annual cycle did.
 
 ### 5.3 Information criteria (AIC, BIC)
 
 | Model | AIC | AICc | BIC |
 |---|---|---|---|
-| ARIMA + Fourier (demand) | 248,745 | 248,745 | 248,893 |
-| SARIMAX (net demand, with solar/wind exogenous) | 248,586 | 248,586 | 248,748 |
-| ETS(M,A,M) (daily demand) | 9,962.1 | 9,962.5 | 10,016.7 |
+| ARIMA + Fourier (demand) | 254,264 | 254,264 | 254,527 |
+| SARIMAX (net demand, with solar/wind exogenous) | 258,131 | 258,131 | 258,410 |
+| ETS(A,N,A) (daily demand) | 11,241.7 | 11,242.0 | 11,287.3 |
 
-ETS automatically selected **multiplicative** error and seasonality with **additive** trend -- consistent with how the synthetic data was generated (multiplicative weekend and seasonal factors on top of a base level).
+ETS now selects **additive** error and seasonality with **no trend**, where the old simulated series led it to ETS(M,A,M). That matches §5.1 and §5.2: once the monthly level follows real SEN generation, there is no persistent trend left for the model to carry.
 
 ### 5.4 Error metrics (MAPE, RMSE, MASE)
 
@@ -188,7 +188,7 @@ MASE > 1 means "worse than a naive forecast on the training set itself"; MASE < 
 
 Modular pipeline under `R/`, built on `tidyverse` + `tsibble` + `fable` + `feasts` + `rugarch`. A few representative excerpts (real code from this repository, not illustrative):
 
-**Explicit GARCH(1,1) simulation for the wind component** (`R/01_generate_synthetic_data.R`) -- so the GARCH model in §6.4 has genuine volatility to recover, not invented noise:
+**Explicit GARCH(1,1) simulation for the wind component in simulator mode** (`R/01_generate_synthetic_data.R`, `real = FALSE`) -- in the default real-anchored mode wind comes from real ERA5 wind speed instead (§7.2):
 
 ```r
 simulate_garch11 <- function(n, omega, alpha, beta, seed) {
@@ -273,7 +273,7 @@ Rscript run_pipeline.R    # must run first -- the report reads its saved models/
 Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')"
 ```
 
-`reports/02_Residual_Autocorrelation_Fourier.Rmd` is a standalone, fully reproducible R Markdown document (not just a script): it re-fits the original `K=4` baseline model itself (so the comparison isn't a number quoted from a past run), independently re-derives the true deterministic component of the synthetic series from the generator's own functions to check whether the residual autocorrelation is a modeling artifact or a real data property (§7.3 summarizes the answer), and renders ACF/PACF diagnostics for all three models plus the hourly rolling-origin CV table. Requires Pandoc (bundled with RStudio; `rmarkdown::pandoc_available()` checks). Output (`reports/*.html`) is gitignored, same as every other generated artifact in this repository -- rendering it is part of reproducing the project, not a tracked deliverable.
+`reports/02_Residual_Autocorrelation_Fourier.Rmd` is a standalone, fully reproducible R Markdown document (not just a script): it re-fits the original `K=4` baseline model itself (so the comparison isn't a number quoted from a past run), independently re-derives the true deterministic component of the series (with the same real monthly scaling) from the generator's own functions to check whether the residual autocorrelation is a modeling artifact or a real data property (§7.3 summarizes the answer), and renders ACF/PACF diagnostics for all three models plus the hourly rolling-origin CV table. Requires Pandoc (bundled with RStudio; `rmarkdown::pandoc_available()` checks). Output (`reports/*.html`) is gitignored, same as every other generated artifact in this repository -- rendering it is part of reproducing the project, not a tracked deliverable.
 
 ## 7. Results
 
@@ -283,83 +283,85 @@ Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')
 
 | Model | MAPE | RMSE | MASE |
 |---|---|---|---|
-| **TBATS** | **2.47%** | **284** | **0.44** |
-| ARIMA + Fourier (K=12) | 5.59% | 616 | 1.03 |
-| SNAIVE (daily seasonal naive) | 6.54% | 795 | 1.13 |
+| **TBATS** | **4.28%** | **468** | **0.67** |
+| ARIMA + Fourier (K=12) | 4.54% | 574 | 0.76 |
+| SNAIVE (daily seasonal naive) | 6.73% | 905 | 1.08 |
 
-TBATS isn't just better on the residual-autocorrelation diagnostic (§7.3) -- it's also the most accurate point forecaster on this holdout by a wide margin, more than doubling ARIMA+Fourier's improvement over SNAIVE. The trade-off (§7.3, §6) is that it doesn't support exogenous regressors and takes ~4x longer to fit.
+TBATS is the most accurate point forecaster, ahead of ARIMA+Fourier. The trade-off (§6) is that it doesn't support exogenous regressors and takes several times longer to fit.
 
 **Fixed hourly holdout (14 days) -- net demand (SARIMAX, K=12):**
 
 | Model | MAPE | RMSE | MASE |
 |---|---|---|---|
-| **SARIMAX** (solar+wind exogenous) | **6.68%** | **610** | **0.85** |
-| SNAIVE | 10.60% | 924 | 1.15 |
+| **SARIMAX** (solar+wind exogenous) | 22.96% | **800** | **0.66** |
+| SNAIVE | **12.33%** | 1,080 | 0.76 |
+
+**The metrics disagree, and it is MAPE that misleads here.** SARIMAX has lower RMSE and MASE than the naive forecast, but a much higher MAPE. With real solar, net demand falls to the 1,200 MW floor around midday on sunny days (about 9% of hours over the two years); MAPE divides by that small actual value, so any error in those hours explodes. RMSE and MASE, which do not divide by the actual, are the metrics to trust for net demand.
 
 **Fixed daily holdout (28 days) -- daily mean demand:**
 
 | Model | MAPE | RMSE | MASE |
 |---|---|---|---|
-| Weekly SNAIVE | **1.22%** | **138** | **1.34** |
-| ETS(M,A,M) | 1.28% | 141 | 1.41 |
+| **ETS(A,N,A)** | **2.22%** | **383** | **1.51** |
+| Weekly SNAIVE | 3.85% | 501 | 2.54 |
 
 **Rolling-origin cross-validation (13 origins, 7-day horizon) -- daily demand:**
 
 | Model | MAPE | RMSE | MASE |
 |---|---|---|---|
-| **ETS(M,A,M)** | **0.43%** | **47.0** | **0.45** |
-| Weekly SNAIVE | 1.09% | 107 | 1.11 |
+| **ETS(A,N,A)** | **0.77%** | **106.9** | **0.48** |
+| Weekly SNAIVE | 1.38% | 195 | 0.85 |
 
-**An honest, unpolished finding:** on the single-window daily holdout, SNAIVE *beats* ETS. On rolling-origin cross-validation (13 distinct origins), ETS clearly beats SNAIVE. This is exactly why time-series cross-validation exists: a single train/test split can mislead -- one particular 28-day window can favor a simple model by chance, while averaging over 13 origins reveals the real performance. Reporting only the favorable result would have been dishonest; the methodological point is worth more than hiding the inconvenient one.
+ETS beats the weekly naive forecast on both the single 28-day holdout and rolling-origin CV. With the old simulated series, the single holdout favoured the naive forecast and only CV revealed ETS's advantage; with real monthly levels both agree, and CV still gives the more reliable estimate (13 origins instead of one window).
 
-### 7.2 GARCH parameter recovery
+### 7.2 GARCH on real wind ramps
 
-The wind component was simulated as an explicit GARCH(1,1) with $\alpha_1=0.15$, $\beta_1=0.80$ (true persistence = 0.95). The model fitted with `rugarch` recovered:
+The old version simulated wind as an explicit GARCH(1,1) and checked that `rugarch` recovered the true parameters. With wind now driven by real ERA5 wind speed, there is no true parameter to recover; the question becomes what the real volatility looks like.
 
-| Parameter | True value (simulation) | Estimated value |
-|---|---|---|
-| $\alpha_1$ | 0.150 | 0.142 |
-| $\beta_1$ | 0.800 | 0.811 |
-| Persistence ($\alpha_1+\beta_1$) | 0.950 | 0.954 |
+Fitting GARCH on the deviation of wind from its hourly mean (the old approach) degenerates on real wind (α₁ ≈ 0.92, β₁ ≈ 0.07): that series has lag-1 autocorrelation 0.936, because wind persists for hours, so the model is fitting the persistence of the *level* instead of the volatility. `R/07_models_garch_volatility.R` now fits on the hourly change in wind generation (the ramp), whose lag-1 autocorrelation is 0.302:
 
-Near-exact recovery -- confirms the data-generation pipeline and the GARCH fit are consistent with each other, not just that "the code runs."
+| Parameter | Estimate |
+|---|---|
+| $\alpha_1$ | 0.010 |
+| $\beta_1$ | 0.989 |
+| Persistence ($\alpha_1+\beta_1$) | 0.999 |
+
+Volatility of real wind ramps is almost integrated: a stormy, high-volatility period stays volatile for days, and shocks barely decay. The 48-hour-ahead conditional volatility forecast is about 394 MW/h. Persistence this close to 1 also hints that part of the clustering is seasonal (windier months), which a plain GARCH(1,1) does not model separately.
 
 ### 7.3 Residual diagnostics -- the lag-24 investigation
 
-The previous version of this project flagged a real limitation and left it for future work: the ARIMA + Fourier residual ACF showed a notable spike at lag 24 (≈0.41), attributed to daily seasonality "not fully captured with `K=4` Fourier terms." This round of work chased that fix -- and the full investigation, not just the final answer, is the more useful result. Full detail and reproducible code: `reports/02_Residual_Autocorrelation_Fourier.Rmd`.
+The ARIMA + Fourier residual ACF shows a notable spike at lag 24, from daily seasonality the model does not fully capture. Full detail and reproducible code: `reports/02_Residual_Autocorrelation_Fourier.Rmd` (re-rendered on the anchored series).
 
-**Step 1 -- is this the data, or the model?** The synthetic generator (`R/01_generate_synthetic_data.R`) builds `demand_mw` as a known deterministic function (trend × weekday × annual × daily shape) plus independent Gaussian noise -- so the *true* residual, reconstructed exactly from the generator's own functions, should be white noise if the model were correctly specified. It is: **ACF(lag24) = 0.004, Ljung-Box p = 0.685** (does not reject white noise). This rules out "the data has real 24h dependency the model is missing" -- the 0.41 spike is a modeling artifact, not a missed signal.
+**Step 1 -- is this the data, or the model?** Hourly demand is built as a known deterministic function (trend × weekday × annual × daily shape) plus independent Gaussian noise, and each month is then scaled to real SEN energy. Reconstructing that deterministic part, with the same monthly factors, and subtracting it leaves the scaled noise, which should be white: **ACF(lag24) = 0.004, Ljung-Box p = 0.757** (does not reject white noise). The spike in the fitted model is a modeling artifact, not a missed signal.
 
-**Step 2 -- five fixes tried, honestly reported including the ones that failed:**
+**Step 2 -- fixes tried:**
 
 | # | Attempt | Result | Verdict |
 |---|---|---|---|
-| 1 | Daily Fourier `K`: 4 → 12 (Nyquist limit for period 24) | ACF(lag24): 0.4069 → 0.3675 | Real, partial improvement (-9.7%) |
-| 2 | Weekly Fourier `K`: 2 → 6/12/20 (with daily K=12) | ACF(lag24) **worsens** to 0.469 | Discarded |
-| 3 | `log(demand_mw)` instead of level | ACF(lag24) = 0.402, no improvement | Discarded |
+| 1 | Daily Fourier `K`: 4 → 12 (Nyquist limit for period 24) | ACF(lag24): 0.388 → 0.347 | Real, partial improvement (-10.6%) |
+| 2 | Weekly Fourier `K`: 2 → 6/12/20 (with daily K=12) | ACF(lag24) worsened (old simulated series) | Discarded |
+| 3 | `log(demand_mw)` instead of level | No improvement (old simulated series) | Discarded |
 | 4 | `PDQ(P=1,D=0,Q=1,period=24)`, no daily Fourier | `fable::ARIMA()` fails: unstable characteristic roots | Unavailable (Methodological note 2, §6) |
 | 5 | Seasonal differencing `D=1` at period 24 | Same failure as #4 | Unavailable |
-| 6 | **TBATS** (dynamic seasonal states, no Fourier/differencing) | ACF(lag24) = **0.1588** | Best improvement found (-61.0%) |
+| 6 | TBATS (dynamic seasonal states, no Fourier/differencing) | ACF(lag24) = 0.398 | No improvement on the anchored series |
 
-**Reproduction note (run of 2026-10-01, R 4.6.1 / `forecast` 9.0.2).** Rows 1 and 6 were re-measured from a full `Rscript run_pipeline.R`, twice: once through `reports/02_Residual_Autocorrelation_Fourier.Rmd` and once through a separate script reading the saved models directly. The ARIMA figures reproduce the previously recorded ones to within about 1% (0.413 → 0.4069, 0.373 → 0.3675). **TBATS does not: the table used to claim 0.289, and the measured value is 0.1588.**
+Rows 1 and 6 are recomputed from the saved models every time the report renders; rows 2-5 come from exploratory fits on the old simulated series that are not part of the numbered pipeline.
 
-That gap was a documentation error, not model drift. `output/figures/tbats_residuals_acf.png` was generated during the original TBATS work and has not been regenerated since — and the lag-24 spike it shows has always been ≈0.16, matching today's measurement, not 0.289. The number in the prose was never one this code produced. It is corrected here, which makes the project's best result substantially *better* than it had been claiming: a 61.0% reduction rather than ~30%.
+**TBATS no longer helps.** On the old simulated series it cut the spike by 61% (to 0.159). On the anchored series it leaves it at 0.398, slightly above the K=4 baseline. The monthly scaling to real SEN energy shifts the level of the series from one month to the next, and TBATS's dynamic states absorb those level shifts rather than the daily shape. It remains the most accurate point forecaster (§7.1).
 
-Rows 2–5 come from exploratory fits that are not part of the numbered pipeline and were **not** re-run in this round, so they still carry their original values and have not been checked the same way.
-
-**The honest bottom line: no fix tried eliminates the autocorrelation completely** -- the Ljung-Box test still rejects white noise at lag 24 for all three models (p < 1e-15), including TBATS. `K=12` gets a real but modest 9.7% reduction and keeps SARIMAX exogenous-regressor support. TBATS gets a much larger 61.0% reduction (and, per §7.1, is also the most accurate point forecaster) but has no exogenous-regressor analogue and costs ~4x the fit time. Both `arima_fourier` (K=12) and TBATS are shipped in `output/models/`, so a user can pick based on what their use case needs -- interpretable regressors and speed (Fourier), or minimizing residual autocorrelation and headline accuracy (TBATS) -- rather than this project asserting one universally "correct" answer.
+**Bottom line: no fix tried eliminates the autocorrelation** -- Ljung-Box still rejects white noise at lag 24 for all models. `K=12` gives the only improvement that holds and keeps SARIMAX exogenous-regressor support. Both `arima_fourier` (K=12) and TBATS are shipped in `output/models/`: Fourier for regressors, speed and the smaller residual spike; TBATS for headline accuracy.
 
 ![Residual diagnostics -- ARIMA + Fourier K=12](output/figures/residuals_arima.png)
 
-**How to read it**: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise well behaved: centred, roughly symmetric, no trend. That combination is the point. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.
+**How to read it**: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise centred and roughly symmetric. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.
 
-The TBATS alternative reduces that same spike to 0.1588, visible in `output/figures/tbats_residuals_acf.png` alongside its PACF.
+The TBATS residual ACF and PACF are in `output/figures/tbats_residuals_acf.png` and `tbats_residuals_pacf.png`.
 
 ### 7.4 Generated figures
 
 ![STL decomposition of hourly SEN demand](output/figures/stl_decomposition.png)
 
-The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel shows the annual cycle at a ~2,000 MW amplitude, peaking in winter. And the `season_day` panel is a *solid black band* — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:
+The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel moves within about 9,000-10,250 MW, highest in winter (June-July) and early summer, with visible jumps at month boundaries: those are the monthly scaling to real SEN energy, and they are also why TBATS stops helping in §7.3. And the `season_day` panel is a *solid black band* — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:
 
 ![Two-week detail of hourly demand](output/figures/demand_two_week_zoom.png)
 
@@ -387,27 +389,25 @@ Extends §7.1's fixed hourly holdout with `run_hourly_rolling_cv()` (`R/08_cross
 
 | Origin | MAPE | RMSE | MASE | Fit time |
 |---|---|---|---|---|
-| 1 | 3.80% | 336 | 0.549 | 72s |
-| 2 | 3.61% | 358 | 0.561 | 64s |
-| 3 | 3.71% | 384 | 0.637 | 87s |
-| 4 | 4.29% | 508 | 0.836 | 70s |
-| 5 | 4.29% | 543 | 0.861 | 63s |
+| 1 | 4.62% | 621 | 0.801 | 81s |
+| 2 | 4.50% | 599 | 0.816 | 68s |
+| 3 | 3.87% | 497 | 0.668 | 75s |
+| 4 | 4.96% | 604 | 0.824 | 83s |
+| 5 | 3.45% | 468 | 0.562 | 67s |
 
-**Real, not-fully-flat finding:** MAPE drifts from 3.61%–3.80% on the earlier origins up to 4.29% on the later two, and RMSE/MASE follow the same direction, roughly doubling from origin 2 to origin 5. This is exactly the kind of temporal-stability signal a single fixed holdout can't surface (§7.1's headline 5.59% MAPE is itself roughly the average of this range) -- worth flagging honestly rather than only reporting the best origin. A fixed-size window (not `stretch_tsibble`'s expanding one) is deliberate here: it isolates whether performance is drifting with *time*, not just improving because later origins happen to have more training data.
+MAPE ranges from 3.45% to 4.96% (mean 4.28%) with no steady drift: on the anchored series the error depends on which 48 hours are forecast (real weather and month), not on how late the origin is. A fixed-size window (not `stretch_tsibble`'s expanding one) is deliberate here: it isolates whether performance changes with *time*, not just with more training data.
 
 ## 8. Conclusion
 
-All three level models (ARIMA+Fourier, SARIMAX, ETS) consistently beat their respective naive baselines when evaluated correctly -- MASE < 1 for ARIMA, SARIMAX, and ETS-under-CV confirms this formally, not just visually. The finding in §7.1 (SNAIVE wins on one holdout, ETS wins under CV) is itself the most valuable methodological result of the project: it validates why rolling-origin cross-validation, not a single split, should be the standard when comparing time-series models. GARCH(1,1) recovers the true simulation parameters almost exactly, confirming that "simulate with known structure, then re-fit" is a valid way to check that a statistical pipeline works end to end.
+All three level models (ARIMA+Fourier, SARIMAX, ETS) beat their naive baselines on the scale-free metric that matters (MASE < 1 on the hourly holdouts and on daily rolling-origin CV). Anchoring the series to real data changed several conclusions, and each change is reported rather than smoothed over: ETS now wins the single holdout as well as CV, MAPE turns out to be the wrong metric for net demand once real solar drives it to the floor, GARCH has to be fitted on wind ramps rather than wind deviations, and TBATS no longer fixes the lag-24 residual spike.
 
-**The lag-24 investigation (§7.3) is this round's most valuable result, and it's a partial one, reported as such:** increasing Fourier `K` to its Nyquist limit and fitting TBATS both measurably reduce the residual autocorrelation the previous version flagged (TBATS: -61.0%, also the best point-forecast accuracy in §7.1) -- but neither eliminates it, and independently verifying against the synthetic generator's own deterministic formula confirmed the true data has no such dependency at all, so the remaining gap is squarely a `fable`/TBATS modeling-framework limitation on this series, not an unaddressed feature of the data.
-
-**Value for SEN operators:** a net-demand forecast with renewable exogenous inputs (SARIMAX) plus an explicit wind-volatility model (GARCH) gives two complementary inputs a grid operator needs: *how much* energy is expected to be needed, and *how uncertain* the ramps tied to renewable generation are -- the latter is precisely what informs how much fast-ramping reserve to keep on hand.
+**Value for SEN operators:** a net-demand forecast with renewable exogenous inputs (SARIMAX) plus an explicit wind-ramp volatility model (GARCH) gives two complementary inputs a grid operator needs: *how much* energy is expected to be needed, and *how uncertain* the ramps tied to renewable generation are -- the latter is precisely what informs how much fast-ramping reserve to keep on hand.
 
 **Limitations and future work:**
-- Neither `K=12` Fourier nor TBATS fully eliminates the lag-24 residual autocorrelation (§7.3) -- a genuinely open problem on this series within `fable`/`forecast`'s current toolset, not a solved one; a hand-rolled seasonal ARMA correction (bypassing `fable::ARIMA()`'s auto-search entirely, which is where the numerically-unstable-roots failure originates) is the natural next attempt.
-- Hourly rolling-origin cross-validation (§7.5) is now implemented, but bounded to 5 origins for compute-cost reasons (each origin refits a full ARIMA+Fourier search, ~1-2 minutes) -- a natural extension is parallelizing across origins to afford more of them.
-- The SARIMAX backtest uses the actual known solar/wind generation values for the holdout period, not a forecast of them -- in production, meteorological forecast error would propagate into the net-demand forecast, and it would be worth quantifying that propagation explicitly.
-- GARCH was applied only to the wind component; extending it to the system's marginal cost/operational price (which in the real SEN also exhibits volatility clustering, driven by hydro reservoir levels and renewable availability) is a natural extension with real data.
+- The hour-to-hour demand profile is still simulated; only its monthly energy is real. Real hourly SEN demand is published by the Coordinador but requires an institutional account (§Data).
+- Neither `K=12` Fourier nor TBATS eliminates the lag-24 residual autocorrelation (§7.3); a hand-rolled seasonal ARMA correction is the natural next attempt.
+- The SARIMAX backtest uses the actual solar/wind values for the holdout period, not a forecast of them; in production, weather-forecast error would propagate into the net-demand forecast.
+- GARCH persistence of 0.999 suggests seasonal volatility; a GARCH with seasonal variance terms (or fitted per season) would separate the two.
 
 ## Appendix: setup and usage
 
@@ -423,7 +423,7 @@ Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')
 
 ### Running the tests
 
-`tests/testthat/` covers the pure data-generation and wrangling functions (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) that don't require a fitted model: GARCH(1,1) simulation stationarity/reproducibility, the daily demand-shape profile, synthetic-data invariants (net demand, no negative generation, solar off at night), and hourly/daily tsibble aggregation (gap-filling, correct grouping and totals).
+`tests/testthat/` covers the pure data-generation and wrangling functions (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) that don't require a fitted model: GARCH(1,1) simulation stationarity/reproducibility, the daily demand-shape profile, simulator invariants (net demand, no negative generation, solar off at night), real-mode monthly energy matching the real SEN figures, and hourly/daily tsibble aggregation (gap-filling, correct grouping and totals).
 
 ```powershell
 Rscript -e "install.packages('testthat', repos='https://cloud.r-project.org')"  # once
@@ -436,7 +436,7 @@ Rscript tests/testthat.R
 chile-energy-grid-forecasting-r/
 ├── R/
 │   ├── 00_setup.R                      # package installation
-│   ├── 01_generate_synthetic_data.R    # synthetic SEN generator (incl. wind GARCH)
+│   ├── 01_generate_synthetic_data.R    # SEN series anchored to real data (simulator kept as real = FALSE)
 │   ├── 02_data_wrangling.R             # hourly + daily tsibbles
 │   ├── 03_stationarity_tests.R         # ADF, KPSS
 │   ├── 04_stl_decomposition.R          # multi-seasonal STL + plots
@@ -464,7 +464,9 @@ chile-energy-grid-forecasting-r/
 
 ### Data disclaimer
 
-All data is **100% synthetic**, generated by `R/01_generate_synthetic_data.R` with a fixed seed. Capacity/demand figures (base demand ~8,000 MW, solar capacity ~3,500 MW, wind capacity ~2,500 MW) are illustrative orders of magnitude for the SEN, not real CEN operational data. The CEN, its responsibilities, and the SEN as a national interconnected system are real public facts -- no specific generation/demand figure in this repository comes from their operational reports.
+**What is real.** Hourly weather at five SEN substations (Open-Meteo, ERA5 reanalysis: solar irradiance and 100 m wind speed) and monthly SEN gross generation by technology (datos.gob.cl, CNE, plant-level), both versioned in `data/real/`. Solar and wind follow the real hourly weather, and the energy of every month (solar, wind and total) equals the real SEN figure; wind is capped at the installed 5.5 GW.
+
+**What is simulated.** The hour-to-hour demand profile (double peak, weekday factors, noise) and the 1,200 MW must-run floor on net demand. The Coordinador Eléctrico Nacional publishes real hourly data, but its API requires an institutional account and its website blocks automated downloads, so it is not used here. `generate_sen_data(..., real = FALSE)` still produces the original fully simulated series.
 
 ## Author
 

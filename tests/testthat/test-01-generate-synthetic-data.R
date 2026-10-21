@@ -34,7 +34,7 @@ test_that("daily_shape produces a double-peak profile normalized to mean 1", {
 })
 
 test_that("generate_sen_data returns a well-formed hourly tibble with expected invariants", {
-  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-07"), seed = 42)
+  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-07"), seed = 42, real = FALSE)
 
   expect_s3_class(sen, "tbl_df")
   expect_equal(nrow(sen), 7 * 24)
@@ -57,8 +57,30 @@ test_that("generate_sen_data returns a well-formed hourly tibble with expected i
 })
 
 test_that("generate_sen_data is reproducible given the same seed", {
-  sen_a <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-03"), seed = 99)
-  sen_b <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-03"), seed = 99)
+  sen_a <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-03"), seed = 99, real = FALSE)
+  sen_b <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-03"), seed = 99, real = FALSE)
 
   expect_equal(sen_a, sen_b)
+})
+
+
+test_that("real mode matches the real monthly SEN energy and stays physically bounded", {
+  sen <- generate_sen_data(as.Date("2024-01-01"), as.Date("2024-03-31"), seed = 42, real = TRUE)
+  expect_equal(nrow(sen), 91 * 24)
+  month <- format(sen$datetime, "%Y-%m", tz = "America/Santiago")
+  gen <- load_real_generation()
+  real <- gen[gen$month %in% unique(month), ]
+  solar_sum <- tapply(sen$solar_mw, month, sum)[real$month]
+  demand_sum <- tapply(sen$demand_mw, month, sum)[real$month]
+  wind_sum <- tapply(sen$wind_mw, month, sum)[real$month]
+  expect_equal(as.numeric(solar_sum), real$solar_mwh, tolerance = 1e-3)
+  expect_equal(as.numeric(demand_sum), real$total_mwh, tolerance = 1e-3)
+  expect_equal(as.numeric(wind_sum), real$wind_mwh, tolerance = 0.02)  # el tope de capacidad recorta algunas horas
+  expect_true(all(sen$wind_mw <= WIND_INSTALLED_MW))
+  expect_true(all(sen$solar_mw >= 0))
+  expect_true(all(sen$net_demand_mw >= 1200))
+})
+
+test_that("real mode refuses a range that the real series do not cover", {
+  expect_error(generate_sen_data(as.Date("2019-01-01"), as.Date("2019-01-02"), real = TRUE))
 })

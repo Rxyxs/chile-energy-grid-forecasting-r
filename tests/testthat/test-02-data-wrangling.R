@@ -6,7 +6,7 @@ source(file.path("..", "..", "R", "01_generate_synthetic_data.R"), chdir = FALSE
 source(file.path("..", "..", "R", "02_data_wrangling.R"), chdir = FALSE)
 
 test_that("build_hourly_tsibble produces a regular, gap-filled tsibble with derived columns", {
-  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-10"), seed = 42)
+  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-10"), seed = 42, real = FALSE)
   hourly_ts <- build_hourly_tsibble(sen)
 
   expect_s3_class(hourly_ts, "tbl_ts")
@@ -17,7 +17,7 @@ test_that("build_hourly_tsibble produces a regular, gap-filled tsibble with deri
 })
 
 test_that("build_hourly_tsibble fills gaps when rows are missing from the source data", {
-  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-05"), seed = 42)
+  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-05"), seed = 42, real = FALSE)
   sen_with_gap <- sen[-c(10, 11), ]  # drop two consecutive hours
 
   hourly_ts <- build_hourly_tsibble(sen_with_gap)
@@ -27,7 +27,7 @@ test_that("build_hourly_tsibble fills gaps when rows are missing from the source
 })
 
 test_that("build_daily_tsibble aggregates hourly data to one row per day with correct totals", {
-  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-05"), seed = 42)
+  sen <- generate_sen_data(as.Date("2023-01-01"), as.Date("2023-01-05"), seed = 42, real = FALSE)
   hourly_ts <- build_hourly_tsibble(sen)
   daily_ts <- build_daily_tsibble(hourly_ts)
 
