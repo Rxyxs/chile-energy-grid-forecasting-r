@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>⚡ Statistical Forecasting of Energy Demand and Grid Stability in Chile&#x27;s SEN</title>
-<meta name="description" content="**An end-to-end R project -- ARIMA/SARIMAX, STL decomposition, state space models (ETS), and GARCH -- on the tidyverts/fable ecosystem**">
+<meta name="description" content="An end-to-end R project -- ARIMA/SARIMAX, STL decomposition, state space models (ETS), and GARCH -- on the tidyverts/fable ecosystem">
 <style>
   :root { --bg:#FBFAF8; --surface:#FFF; --ink:#23201D; --muted:#6B645D; --line:#E3DED7; --accent:#B5553D; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
@@ -47,12 +47,12 @@
 <h2>7.3 Residual diagnostics -- the lag-24 investigation</h2>
 <figure>
 <img src="figures/residuals_arima.png" alt="Residual diagnostics -- ARIMA + Fourier K=12" loading="lazy">
-<figcaption><strong>How to read it</strong>: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise well behaved: centred, roughly symmetric, no trend. That combination is the point. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.</figcaption>
+<figcaption><strong>How to read it</strong>: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise centred and roughly symmetric. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.</figcaption>
 </figure>
 <h2>7.4 Generated figures</h2>
 <figure>
 <img src="figures/stl_decomposition.png" alt="STL decomposition of hourly SEN demand" loading="lazy">
-<figcaption>The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel shows the annual cycle at a ~2,000 MW amplitude, peaking in winter. And the <code>season_day</code> panel is a *solid black band* — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:</figcaption>
+<figcaption>The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel moves within about 9,000-10,250 MW, highest in winter (June-July) and early summer, with visible jumps at month boundaries: those are the monthly scaling to real SEN energy, and they are also why TBATS stops helping in §7.3. And the <code>season_day</code> panel is a <em>solid black band</em> — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:</figcaption>
 </figure>
 <figure>
 <img src="figures/demand_two_week_zoom.png" alt="Two-week detail of hourly demand" loading="lazy">
