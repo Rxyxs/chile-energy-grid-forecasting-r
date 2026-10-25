@@ -21,6 +21,9 @@ required_packages <- c(
   "forecast",    # TBATS (multiple seasonalidades sin aproximacion de Fourier)
   "rmarkdown",   # renderiza 02_Residual_Autocorrelation_Fourier.Rmd a HTML
   "knitr",       # motor de chunks usado por rmarkdown
+  "readxl",      # lee el XLSX horario real del CEN (R/10)
+  "jsonlite",    # APIs de clima (Open-Meteo) y feriados (Nager.Date) (R/10, R/11)
+  "lightgbm",    # gradient boosting del pronostico del dia siguiente (R/11)
   "testthat"     # tests unitarios (tests/testthat.R)
 )
 

@@ -2,7 +2,7 @@
 
 # ⚡ Statistical Forecasting of Energy Demand and Grid Stability in Chile's SEN
 
-**An end-to-end R project -- ARIMA/SARIMAX, STL decomposition, state space models (ETS), and GARCH -- on the tidyverts/fable ecosystem**
+**An end-to-end R project on Chile's grid: day-ahead machine learning (LightGBM, seven loss functions, conformal intervals) on 70,128 real hours from the Coordinador, plus ARIMA/SARIMAX, STL, ETS and GARCH on the tidyverts/fable ecosystem**
 
 [English ] | [[Español](README.es.md) ]
 
@@ -10,11 +10,75 @@
 [![fable](https://img.shields.io/badge/tidyverts-fable%20%7C%20feasts%20%7C%20tsibble-2C5F8A)](https://fable.tidyverts.org/)
 [![forecast](https://img.shields.io/badge/TBATS-forecast-4C7A3E)](https://cran.r-project.org/package=forecast)
 [![rugarch](https://img.shields.io/badge/GARCH-rugarch-8A5A2C)](https://cran.r-project.org/package=rugarch)
+[![LightGBM](https://img.shields.io/badge/LightGBM-7%20losses%20%2B%20conformal-1f4e79)](R/11_ml_day_ahead.R)
+[![Data](https://img.shields.io/badge/data-real%20hourly%20CEN%202018--2025-c0392b)](R/10_real_hourly_data.R)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 </div>
 
 ---
+
+## Real hourly SEN data and day-ahead machine learning (2018-2025)
+
+The sections from §1 onward model a series whose hour-to-hour shape is simulated (only its monthly energy is real), because the Coordinador's API needs an institutional account. This section uses a source that does not: the **Coordinador's public file of hourly gross generation** (`CEN-hist_gen_de_energia_por_hora`, one sheet per year since 2000). In an islanded system like the SEN, hourly gross generation is demand plus losses, so it is the real hourly load. `R/10_real_hourly_data.R` reads 2018-2025 (70,128 hours, the SEN exists as one system since the 2017 interconnection) and adds Santiago's hourly temperature (Open-Meteo, ERA5) and Chile's public holidays.
+
+![Every hour of Chile's grid, 2018-2025](output/figures/real_sen_hourly_heatmap.png)
+
+*Each column is a day, each row an hour of the local day. The grid grows, winter evenings are the old peak, and from 2023 the brightest band moves to midday. The light-blue marks are hours removed as anomalous.*
+
+### What the file needed before it could be used
+
+- **The 2025 sheet lists each day's hours in alphabetical order** (1, 10, 11, ..., 19, 2, 20, ...) while labelling them 1, 2, 3. The national blackout of 25 February 2025 gives it away: in the published order a normal hour (9,800 MW) sits between hours near zero. Put back in true order, the collapse starts at 15:00, when it happened, and the year's mean profile has its minimum at 4 am like every other year.
+- **Daylight-saving days.** The 23-hour day is published with 24 rows, the first being the non-existent hour with value 0; the 25-hour day comes with 24 rows. Rows are placed by their order from the real start of each local day, and the missing hour is left missing.
+- **Anomalies.** Hours below half the median of the same hour over the surrounding 14 days are flagged: the blackout (15 hours on 25-26 February 2025) and one stray zero. With the 12 hours the file does not have, they are excluded from training and from every metric.
+- **The file changed definition in 2025.** Summed by month, the hourly values match the official monthly generation exactly in 2025, but exceed it by up to 3% through 2023-2024 (and in 2018). From 1 January 2025 the evening hours drop by about 1 GW while midday does not: whatever the earlier sheets counted at night, the 2025 sheet does not. The test year therefore measures something slightly different from the training years.
+
+![Hourly sum against the official monthly total](output/figures/real_file_definition_break.png)
+
+![Mean daily profile by year](output/figures/real_daily_profile_by_year.png)
+
+### Day-ahead forecast with gradient boosting (`R/11_ml_day_ahead.R`)
+
+- **Honest day-ahead protocol.** Every input is at least 48 hours old (lags of 2 to 14 days, rolling means, same hour over the last four weeks), plus calendar, holidays and temperature. That is enough to forecast all of day D at midnight of D-1.
+- **Splits.** Train 2018-2023 (50,378 hours), validate 2024 (8,614), test 2025 (8,378), never touched until the end. Hyperparameters come from a 16-configuration random search with early stopping on 2024; the final models are refit on 2018-2024 with the chosen number of trees.
+- **Two target forms.** A tree cannot extrapolate: trained on MW it keeps predicting the level of the years it saw. The **relative target** divides each hour by the mean of the last known week, so the model learns the shape and the level comes from the data. Chosen on 2024, not on the test: MAPE 2.04% relative against 2.42% in MW.
+- **Seven losses**, same features and hyperparameters: L2, L1, Huber, quantile 0.1/0.5/0.9 and an asymmetric L2 written as a custom objective, which weighs an under-forecast twice an over-forecast (under-forecasting demand calls expensive reserves).
+
+![Day-ahead forecast on two weeks of 2025](output/figures/ml_forecast_two_weeks.png)
+
+**Test year 2025** (all models on the same 8,378 hours):
+
+| Model | MAPE | RMSE (MW) | MASE | Bias (MW) | Cost, under x2 (MW) |
+|---|---:|---:|---:|---:|---:|
+| Naive: same hour last week | 3.61% | 485 | 1.30 | +6 | 520 |
+| STL + ETS, refit every day (classical) | 3.35% | 446 | 1.21 | -8 | 489 |
+| LightGBM, L2, MW target | 2.69% | 353 | 0.96 | +75 | 350 |
+| LightGBM, asymmetric L2, MW target | 2.83% | 367 | 1.01 | +125 | **343** |
+| LightGBM, L2, relative target | 2.52% | 336 | 0.92 | -16 | 376 |
+| **LightGBM, L1, relative target** | **2.48%** | **331** | **0.90** | **-2** | 362 |
+| LightGBM, asymmetric L2, relative target | 2.54% | 337 | 0.92 | +28 | 354 |
+
+![Model and loss comparison on 2025](output/figures/ml_model_comparison.png)
+
+- **The relative target wins and removes the bias.** In MW the models over-forecast 2025 by 75-125 MW, because 2025 is the first year in which generation fell and a tree only knows the levels it saw. Relative to last week's level the bias is about zero and MAPE drops from 2.69% to 2.48%: 31% below the weekly naive forecast and 26% below STL + ETS.
+- **The loss changes the error you get, not just the number.** L1 and the median quantile are the best point forecasts on the relative target. The asymmetric loss gives up a little MAPE to over-forecast on purpose, and within each target form it has the lowest under-forecast-weighted cost. The cheapest model overall is the asymmetric one in MW, but partly by luck: the 2025 level drop made every MW model over-forecast, which that cost rewards.
+- **Refitting on 2018-2024 matters.** The same relative model trained only up to 2023 scores 2.56%; with 2024 included, 2.52%. In MW the gap is larger (3.00% against 2.69%).
+
+**Rolling-origin validation** (train up to Y-2, choose trees on Y-1, test on Y): the relative target beats the MW target and the naive forecast every year.
+
+| Test year | 2021 | 2022 | 2023 | 2024 | 2025 |
+|---|---:|---:|---:|---:|---:|
+| LightGBM, relative target | 1.95% | 1.90% | 2.14% | 2.03% | 2.56% |
+| LightGBM, MW target | 2.49% | 2.51% | 2.36% | 2.64% | 3.00% |
+| Naive: same hour last week | 2.73% | 2.92% | 3.02% | 3.48% | 3.61% |
+
+![Rolling-origin validation by year](output/figures/ml_yearly_cv.png)
+
+2025 is the hardest year for every method, which is what the definition change above predicts.
+
+**Prediction intervals.** The quantile models promise that 80% of hours fall between P10 and P90. On 2025 the relative ones cover 61.6% (17.9% below, 20.5% above). Calibrating the band by conformal quantile regression (CQR) on 2024 residuals widens it by 64 MW per side and raises coverage to 71.1%, with a mean width of 687 MW. It still falls short of 80% because conformal guarantees assume the calibration year and the test year are exchangeable, and the file's change of definition breaks exactly that.
+
+**What drives the forecast.** By gain, the mean of the same hour over the last four weeks (49%) and the same hour a week earlier (23%) carry most of it, then the hour of day, two weeks earlier, weekday, day of year and the holiday flag.
 
 ## 1. Project title
 
@@ -35,6 +99,7 @@ This project builds the full statistical stack to address both problems with the
 
 | Metric | Result | What it means |
 |---|---|---|
+| **Day-ahead forecast on real hourly data, test year 2025** | **2.48% MAPE, MASE 0.90** | LightGBM on a relative target, 31% below the weekly naive forecast (3.61%) and 26% below STL + ETS (3.35%); relative target chosen on 2024 |
 | Best hourly demand forecast (TBATS) | 4.28% MAPE, 468 RMSE | 1.6x more accurate than the seasonal-naive baseline (6.73% MAPE) |
 | Net-demand forecast with solar/wind exogenous (SARIMAX) | RMSE 800 vs. 1,080 naive, MASE 0.66 | Beats naive on RMSE and MASE; its MAPE (23%) is inflated by midday hours where real solar pushes net demand to the floor (§7.1) |
 | Daily demand, rolling-origin CV (ETS vs. naive) | 0.77% vs. 1.38% MAPE | ETS also wins the single 28-day holdout now (2.22% vs. 3.85%) |
@@ -404,7 +469,7 @@ All three level models (ARIMA+Fourier, SARIMAX, ETS) beat their naive baselines 
 **Value for SEN operators:** a net-demand forecast with renewable exogenous inputs (SARIMAX) plus an explicit wind-ramp volatility model (GARCH) gives two complementary inputs a grid operator needs: *how much* energy is expected to be needed, and *how uncertain* the ramps tied to renewable generation are -- the latter is precisely what informs how much fast-ramping reserve to keep on hand.
 
 **Limitations and future work:**
-- The hour-to-hour demand profile is still simulated; only its monthly energy is real. Real hourly SEN demand is published by the Coordinador but requires an institutional account (§Data).
+- §1-§7 still model the semi-synthetic series (simulated hourly shape, real monthly energy); the real hourly series is used by the machine-learning section at the top. Moving ARIMA, ETS and GARCH onto it is the next step, with the 2025 change of definition in mind.
 - Neither `K=12` Fourier nor TBATS eliminates the lag-24 residual autocorrelation (§7.3); a hand-rolled seasonal ARMA correction is the natural next attempt.
 - The SARIMAX backtest uses the actual solar/wind values for the holdout period, not a forecast of them; in production, weather-forecast error would propagate into the net-demand forecast.
 - GARCH persistence of 0.999 suggests seasonal volatility; a GARCH with seasonal variance terms (or fitted per season) would separate the two.
@@ -418,12 +483,17 @@ git clone https://github.com/Rxyxs/chile-energy-grid-forecasting-r.git
 cd chile-energy-grid-forecasting-r
 Rscript R/00_setup.R      # installs tidyverse, tsibble, fable, feasts, forecast, rugarch, tseries, ggtime, rmarkdown
 Rscript run_pipeline.R    # runs all 9 steps end to end (TBATS + hourly rolling CV add ~15-20 min)
+
+# Real hourly data and machine learning (section at the top)
+Rscript R/10_real_hourly_data.R   # downloads the CEN file, writes data/real/sen_hourly_real.csv.gz
+Rscript R/11_ml_day_ahead.R       # ~25 min on a laptop CPU
+Rscript R/12_real_figures.R
 Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')"  # optional, §6.1
 ```
 
 ### Running the tests
 
-`tests/testthat/` covers the pure data-generation and wrangling functions (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) that don't require a fitted model: GARCH(1,1) simulation stationarity/reproducibility, the daily demand-shape profile, simulator invariants (net demand, no negative generation, solar off at night), real-mode monthly energy matching the real SEN figures, and hourly/daily tsibble aggregation (gap-filling, correct grouping and totals).
+`tests/testthat/` covers the real-data parser (alphabetical 2025 sheet, daylight-saving days, anomaly flags), the machine-learning helpers (48-hour feature lags, relative target, asymmetric gradient, pinball loss, conformal margin) and the pure data-generation and wrangling functions (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) that don't require a fitted model: GARCH(1,1) simulation stationarity/reproducibility, the daily demand-shape profile, simulator invariants (net demand, no negative generation, solar off at night), real-mode monthly energy matching the real SEN figures, and hourly/daily tsibble aggregation (gap-filling, correct grouping and totals).
 
 ```powershell
 Rscript -e "install.packages('testthat', repos='https://cloud.r-project.org')"  # once
@@ -444,7 +514,10 @@ chile-energy-grid-forecasting-r/
 │   ├── 06_models_ets_statespace.R      # ETS (state space)
 │   ├── 07_models_garch_volatility.R    # GARCH(1,1) on wind volatility
 │   ├── 08_cross_validation.R           # holdout + rolling-origin CV (daily + hourly), MAPE/RMSE/MASE
-│   └── 09_generate_plots.R             # residuals, forecast bands, volatility
+│   ├── 09_generate_plots.R             # residuals, forecast bands, volatility
+│   ├── 10_real_hourly_data.R           # real hourly CEN generation 2018-2025: parsing, DST, anomalies
+│   ├── 11_ml_day_ahead.R               # LightGBM day-ahead: 7 losses, 2 target forms, CQR, yearly CV
+│   └── 12_real_figures.R               # figures of the real-data section
 ├── reports/
 │   └── 02_Residual_Autocorrelation_Fourier.Rmd  # lag-24 diagnosis, ACF/PACF, honest writeup (§6.1, §7.3)
 ├── tests/
@@ -464,7 +537,7 @@ chile-energy-grid-forecasting-r/
 
 ### Data disclaimer
 
-**What is real.** Hourly weather at five SEN substations (Open-Meteo, ERA5 reanalysis: solar irradiance and 100 m wind speed) and monthly SEN gross generation by technology (datos.gob.cl, CNE, plant-level), both versioned in `data/real/`. Solar and wind follow the real hourly weather, and the energy of every month (solar, wind and total) equals the real SEN figure; wind is capped at the installed 5.5 GW.
+**What is real.** In the machine-learning section at the top, everything: hourly SEN gross generation from the Coordinador's public file (2018-2025, processed series versioned as `data/real/sen_hourly_real.csv.gz`), Santiago temperature (Open-Meteo) and holidays (Nager.Date). In §1-§7: hourly weather at five SEN substations (Open-Meteo, ERA5 reanalysis: solar irradiance and 100 m wind speed) and monthly SEN gross generation by technology (datos.gob.cl, CNE, plant-level), both versioned in `data/real/`. Solar and wind follow the real hourly weather, and the energy of every month (solar, wind and total) equals the real SEN figure; wind is capped at the installed 5.5 GW.
 
 **What is simulated.** The hour-to-hour demand profile (double peak, weekday factors, noise) and the 1,200 MW must-run floor on net demand. The Coordinador Eléctrico Nacional publishes real hourly data, but its API requires an institutional account and its website blocks automated downloads, so it is not used here. `generate_sen_data(..., real = FALSE)` still produces the original fully simulated series.
 
