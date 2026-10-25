@@ -17,11 +17,11 @@ jobs:
           r-version: "release"
           use-public-rspm: true
 
-      # Solo las cinco que los tests necesitan de verdad. El proyecto completo
-      # depende ademas de fable, feasts, forecast, rugarch y ggtime, pero esas
-      # entran en el pipeline de modelado -- no en tests/testthat/, que cubre
-      # la generacion de datos sinteticos y el wrangling. Instalarlas igual
-      # agregaria varios minutos por corrida sin verificar una linea mas.
+      # Solo las que los tests necesitan de verdad: las cinco de la generacion
+      # sintetica y el wrangling, mas readxl/jsonlite (lectura del XLSX real del
+      # CEN) y lightgbm/forecast (R/11, el pronostico con machine learning). El
+      # proyecto completo depende ademas de fable, feasts, rugarch y ggtime, pero
+      # esas entran en el pipeline de modelado, no en tests/testthat/.
       #
       # use-public-rspm sirve binarios precompilados para Ubuntu, que es la
       # diferencia entre un job de un minuto y uno de quince compilando desde
@@ -35,6 +35,10 @@ jobs:
             any::tibble
             any::tsibble
             any::readr
+            any::readxl
+            any::jsonlite
+            any::lightgbm
+            any::forecast
 
       # Verificado localmente: con un test fallando, tests/testthat.R sale con
       # codigo 1, asi que un job verde si significa que las aserciones pasaron.

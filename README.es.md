@@ -2,7 +2,7 @@
 
 # ⚡ Pronóstico Estadístico de Demanda Energética y Estabilidad de Red en el SEN Chile
 
-**Un proyecto de extremo a extremo en R -- ARIMA/SARIMAX, descomposición STL, modelos de espacio de estados (ETS) y GARCH -- sobre el ecosistema tidyverts/fable**
+**Un proyecto de extremo a extremo en R sobre la red chilena: pronóstico del día siguiente con machine learning (LightGBM, siete funciones de pérdida, intervalos conformales) sobre 70.128 horas reales del Coordinador, más ARIMA/SARIMAX, STL, ETS y GARCH sobre el ecosistema tidyverts/fable**
 
 [[English](README.md) ] | [Español ]
 
@@ -10,11 +10,75 @@
 [![fable](https://img.shields.io/badge/tidyverts-fable%20%7C%20feasts%20%7C%20tsibble-2C5F8A)](https://fable.tidyverts.org/)
 [![forecast](https://img.shields.io/badge/TBATS-forecast-4C7A3E)](https://cran.r-project.org/package=forecast)
 [![rugarch](https://img.shields.io/badge/GARCH-rugarch-8A5A2C)](https://cran.r-project.org/package=rugarch)
+[![LightGBM](https://img.shields.io/badge/LightGBM-7%20losses%20%2B%20conformal-1f4e79)](R/11_ml_day_ahead.R)
+[![Data](https://img.shields.io/badge/data-real%20hourly%20CEN%202018--2025-c0392b)](R/10_real_hourly_data.R)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 </div>
 
 ---
+
+## Datos horarios reales del SEN y pronóstico del día siguiente con machine learning (2018-2025)
+
+Las secciones desde §1 modelan una serie cuya forma hora a hora es simulada (solo su energía mensual es real), porque la API del Coordinador pide una cuenta institucional. Esta sección usa una fuente que no la pide: el **archivo público de generación bruta horaria del Coordinador** (`CEN-hist_gen_de_energia_por_hora`, una hoja por año desde 2000). En un sistema aislado como el SEN, la generación bruta horaria es la demanda más las pérdidas, así que es la carga horaria real. `R/10_real_hourly_data.R` lee 2018-2025 (70.128 horas; el SEN existe como un solo sistema desde la interconexión de 2017) y le agrega la temperatura horaria de Santiago (Open-Meteo, ERA5) y los feriados nacionales.
+
+![Cada hora de la red chilena, 2018-2025](output/figures/real_sen_hourly_heatmap.png)
+
+*Cada columna es un día, cada fila una hora del día local. La red crece, las noches de invierno son la punta antigua, y desde 2023 la franja más clara se mueve al mediodía. Las marcas celestes son horas descartadas como anómalas.*
+
+### Lo que el archivo necesitó antes de poder usarse
+
+- **La hoja 2025 trae las horas de cada día en orden alfabético** (1, 10, 11, ..., 19, 2, 20, ...) aunque las rotula 1, 2, 3. El apagón nacional del 25 de febrero de 2025 lo delata: en el orden publicado hay una hora normal (9.800 MW) entre horas cercanas a cero. Puestas en su orden real, la caída parte a las 15:00, cuando ocurrió, y el perfil medio del año tiene su mínimo a las 4 a.m. como todos los demás años.
+- **Días de cambio de horario.** El día de 23 horas viene con 24 filas, la primera es la hora que no existe, con valor 0; el día de 25 horas viene con 24 filas. Las filas se ubican por su orden desde el inicio real de cada día local, y la hora que falta queda como faltante.
+- **Anomalías.** Se marcan las horas bajo la mitad de la mediana de esa misma hora en los 14 días alrededor: el apagón (15 horas entre el 25 y el 26 de febrero de 2025) y un cero suelto. Junto con las 12 horas que el archivo no trae, quedan fuera del entrenamiento y de toda métrica.
+- **El archivo cambió de definición en 2025.** Sumadas por mes, las horas calzan exacto con la generación mensual oficial en 2025, pero la superan hasta en 3% durante 2023-2024 (y en 2018). Desde el 1 de enero de 2025 las horas de la noche bajan cerca de 1 GW y el mediodía no: lo que sea que las hojas anteriores contaban en la noche, la hoja 2025 no lo cuenta. El año de prueba mide algo levemente distinto de los años de entrenamiento.
+
+![Suma horaria contra el total mensual oficial](output/figures/real_file_definition_break.png)
+
+![Perfil diario medio por año](output/figures/real_daily_profile_by_year.png)
+
+### Pronóstico del día siguiente con gradient boosting (`R/11_ml_day_ahead.R`)
+
+- **Protocolo honesto de día siguiente.** Toda variable tiene al menos 48 horas de antigüedad (rezagos de 2 a 14 días, promedios móviles, misma hora en las últimas cuatro semanas), más calendario, feriados y temperatura. Con eso se pronostica todo el día D a la medianoche de D-1.
+- **Particiones.** Entrenamiento 2018-2023 (50.378 horas), validación 2024 (8.614), prueba 2025 (8.378), sin tocar hasta el final. Los hiperparámetros salen de una búsqueda aleatoria de 16 configuraciones con early stopping sobre 2024; los modelos finales se reentrenan con 2018-2024 con el número de árboles elegido.
+- **Dos formas del objetivo.** Un árbol no extrapola: entrenado en MW, sigue prediciendo el nivel de los años que vio. El **objetivo relativo** divide cada hora por el promedio de la última semana conocida, así el modelo aprende la forma y el nivel lo ponen los datos. Se elige con 2024, no con la prueba: MAPE 2,04% relativo contra 2,42% en MW.
+- **Siete funciones de pérdida**, mismas variables e hiperparámetros: L2, L1, Huber, cuantílicas 0,1/0,5/0,9 y una L2 asimétrica escrita como objetivo propio, que pesa el doble quedarse corto que pasarse (subestimar la demanda obliga a activar reserva cara).
+
+![Pronóstico del día siguiente en dos semanas de 2025](output/figures/ml_forecast_two_weeks.png)
+
+**Año de prueba 2025** (todos los modelos sobre las mismas 8.378 horas):
+
+| Modelo | MAPE | RMSE (MW) | MASE | Sesgo (MW) | Costo, corto x2 (MW) |
+|---|---:|---:|---:|---:|---:|
+| Ingenuo: misma hora la semana pasada | 3,61% | 485 | 1,30 | +6 | 520 |
+| STL + ETS, reajustado cada día (clásico) | 3,35% | 446 | 1,21 | -8 | 489 |
+| LightGBM, L2, objetivo en MW | 2,69% | 353 | 0,96 | +75 | 350 |
+| LightGBM, L2 asimétrica, objetivo en MW | 2,83% | 367 | 1,01 | +125 | **343** |
+| LightGBM, L2, objetivo relativo | 2,52% | 336 | 0,92 | -16 | 376 |
+| **LightGBM, L1, objetivo relativo** | **2,48%** | **331** | **0,90** | **-2** | 362 |
+| LightGBM, L2 asimétrica, objetivo relativo | 2,54% | 337 | 0,92 | +28 | 354 |
+
+![Comparación de modelos y pérdidas en 2025](output/figures/ml_model_comparison.png)
+
+- **El objetivo relativo gana y elimina el sesgo.** En MW los modelos sobreestiman 2025 en 75-125 MW, porque 2025 es el primer año en que la generación bajó y un árbol solo conoce los niveles que vio. Relativo al nivel de la semana anterior, el sesgo es casi cero y el MAPE baja de 2,69% a 2,48%: 31% bajo el ingenuo semanal y 26% bajo STL + ETS.
+- **La pérdida cambia el error que se obtiene, no solo el número.** L1 y el cuantil mediano son los mejores pronósticos puntuales con objetivo relativo. La pérdida asimétrica cede un poco de MAPE para sobreestimar a propósito, y dentro de cada forma del objetivo tiene el menor costo que pesa doble quedarse corto. El modelo más barato en total es el asimétrico en MW, pero en parte por suerte: la caída de nivel de 2025 hizo sobreestimar a todos los modelos en MW, y ese costo lo premia.
+- **Reentrenar con 2018-2024 importa.** El mismo modelo relativo entrenado solo hasta 2023 marca 2,56%; con 2024 incluido, 2,52%. En MW la diferencia es mayor (3,00% contra 2,69%).
+
+**Validación de origen móvil** (entrenar hasta Y-2, elegir árboles en Y-1, probar en Y): el objetivo relativo le gana al objetivo en MW y al ingenuo todos los años.
+
+| Año de prueba | 2021 | 2022 | 2023 | 2024 | 2025 |
+|---|---:|---:|---:|---:|---:|
+| LightGBM, objetivo relativo | 1,95% | 1,90% | 2,14% | 2,03% | 2,56% |
+| LightGBM, objetivo en MW | 2,49% | 2,51% | 2,36% | 2,64% | 3,00% |
+| Ingenuo: misma hora la semana pasada | 2,73% | 2,92% | 3,02% | 3,48% | 3,61% |
+
+![Validación de origen móvil por año](output/figures/ml_yearly_cv.png)
+
+2025 es el año más difícil para todos los métodos, que es lo que predice el cambio de definición de arriba.
+
+**Intervalos de predicción.** Los modelos cuantílicos prometen que el 80% de las horas cae entre P10 y P90. En 2025 los relativos cubren el 61,6% (17,9% bajo, 20,5% sobre). Calibrar la banda por regresión cuantílica conformal (CQR) con los residuos de 2024 la abre 64 MW por lado y sube la cobertura a 71,1%, con un ancho medio de 687 MW. Sigue bajo el 80% porque la garantía conformal supone que el año de calibración y el de prueba son intercambiables, y el cambio de definición del archivo rompe justamente eso.
+
+**Qué mueve el pronóstico.** Por ganancia, el promedio de la misma hora en las últimas cuatro semanas (49%) y la misma hora una semana antes (23%) llevan la mayor parte, después la hora del día, dos semanas antes, el día de la semana, el día del año y el feriado.
 
 ## 1. Título del proyecto
 
@@ -35,6 +99,7 @@ Este proyecto construye el stack estadístico completo para abordar ambos proble
 
 | Métrica | Resultado | Qué significa |
 |---|---|---|
+| **Pronóstico del día siguiente con datos horarios reales, año de prueba 2025** | **MAPE 2,48%, MASE 0,90** | LightGBM con objetivo relativo, 31% bajo el ingenuo semanal (3,61%) y 26% bajo STL + ETS (3,35%); objetivo relativo elegido con 2024 |
 | Mejor pronóstico horario de demanda (TBATS) | MAPE 4,28%, RMSE 468 | 1,6x más preciso que la línea base estacional ingenua (MAPE 6,73%) |
 | Pronóstico de demanda neta con solar/eólica exógenas (SARIMAX) | RMSE 800 vs. 1.080 del ingenuo, MASE 0,66 | Le gana al ingenuo en RMSE y MASE; su MAPE (23%) se infla en las horas de mediodía en que la solar real lleva la demanda neta al piso (§7.1) |
 | Demanda diaria, validación cruzada de origen móvil (ETS vs. ingenuo) | MAPE 0,77% vs. 1,38% | ETS ahora también gana el holdout único de 28 días (2,22% vs. 3,85%) |
@@ -404,7 +469,7 @@ Los tres modelos de nivel (ARIMA+Fourier, SARIMAX, ETS) le ganan a sus líneas b
 **Valor para los operadores del SEN:** un pronóstico de demanda neta con entradas renovables exógenas (SARIMAX) más un modelo explícito de la volatilidad de las rampas eólicas (GARCH) entrega dos insumos complementarios que necesita un operador de red: *cuánta* energía se espera necesitar, y *qué tan inciertas* son las rampas asociadas a la generación renovable -- esto último es justamente lo que define cuánta reserva de rampa rápida mantener.
 
 **Limitaciones y trabajo futuro:**
-- El perfil hora a hora de la demanda sigue siendo simulado; solo su energía mensual es real. La demanda horaria real del SEN la publica el Coordinador, pero exige una cuenta institucional (ver Datos).
+- §1-§7 siguen modelando la serie semisintética (forma horaria simulada, energía mensual real); la serie horaria real la usa la sección de machine learning del comienzo. Llevar ARIMA, ETS y GARCH a esa serie es el siguiente paso, considerando el cambio de definición de 2025.
 - Ni Fourier `K=12` ni TBATS eliminan la autocorrelación residual en el lag 24 (§7.3); una corrección ARMA estacional hecha a mano es el siguiente intento natural.
 - El backtest de SARIMAX usa los valores reales de solar/eólica del período de holdout, no un pronóstico de ellos; en producción, el error del pronóstico del clima se propagaría al pronóstico de demanda neta.
 - Una persistencia GARCH de 0,999 sugiere volatilidad estacional; un GARCH con términos de varianza estacional (o ajustado por estación) separaría ambos efectos.
@@ -418,12 +483,17 @@ git clone https://github.com/Rxyxs/chile-energy-grid-forecasting-r.git
 cd chile-energy-grid-forecasting-r
 Rscript R/00_setup.R      # instala tidyverse, tsibble, fable, feasts, forecast, rugarch, tseries, ggtime, rmarkdown
 Rscript run_pipeline.R    # corre los 9 pasos de punta a punta (TBATS + CV horaria suman ~15-20 min)
+
+# Datos horarios reales y machine learning (sección del comienzo)
+Rscript R/10_real_hourly_data.R   # descarga el archivo del CEN, escribe data/real/sen_hourly_real.csv.gz
+Rscript R/11_ml_day_ahead.R       # ~25 min en la CPU de un notebook
+Rscript R/12_real_figures.R
 Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')"  # opcional, §6.1
 ```
 
 ### Ejecutando los tests
 
-`tests/testthat/` cubre las funciones puras de generación y transformación de datos (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) que no requieren un modelo ajustado: estacionariedad/reproducibilidad de la simulación GARCH(1,1), el perfil horario de doble punta, invariantes del simulador (demanda neta, generación no negativa, solar nula de noche), que la energía mensual del modo real coincida con las cifras reales del SEN, y la agregación de tsibbles horario/diario (relleno de gaps, agrupación y totales correctos).
+`tests/testthat/` cubre el lector de los datos reales (hoja 2025 en orden alfabético, días de cambio de horario, marcas de anomalía), las funciones de machine learning (rezagos de 48 horas, objetivo relativo, gradiente asimétrico, pérdida pinball, margen conformal) y las funciones puras de generación y transformación de datos (`R/01_generate_synthetic_data.R`, `R/02_data_wrangling.R`) que no requieren un modelo ajustado: estacionariedad/reproducibilidad de la simulación GARCH(1,1), el perfil horario de doble punta, invariantes del simulador (demanda neta, generación no negativa, solar nula de noche), que la energía mensual del modo real coincida con las cifras reales del SEN, y la agregación de tsibbles horario/diario (relleno de gaps, agrupación y totales correctos).
 
 ```powershell
 Rscript -e "install.packages('testthat', repos='https://cloud.r-project.org')"  # una vez
@@ -444,7 +514,10 @@ chile-energy-grid-forecasting-r/
 │   ├── 06_models_ets_statespace.R      # ETS (espacio de estados)
 │   ├── 07_models_garch_volatility.R    # GARCH(1,1) sobre volatilidad eólica
 │   ├── 08_cross_validation.R           # holdout + rolling-origin CV (horaria + diaria), MAPE/RMSE/MASE
-│   └── 09_generate_plots.R             # residuos, pronósticos con bandas, volatilidad
+│   ├── 09_generate_plots.R             # residuos, pronósticos con bandas, volatilidad
+│   ├── 10_real_hourly_data.R           # generación horaria real del CEN 2018-2025: lectura, cambio de horario, anomalías
+│   ├── 11_ml_day_ahead.R               # LightGBM día siguiente: 7 pérdidas, 2 formas del objetivo, CQR, validación por años
+│   └── 12_real_figures.R               # figuras de la sección de datos reales
 ├── reports/
 │   └── 02_Residual_Autocorrelation_Fourier.Rmd  # diagnóstico del lag 24, ACF/PACF, escrito honesto (§6.1, §7.3)
 ├── tests/
@@ -464,7 +537,7 @@ chile-energy-grid-forecasting-r/
 
 ### Disclaimer de datos
 
-**Qué es real.** El clima horario en cinco subestaciones del SEN (Open-Meteo, reanálisis ERA5: irradiancia solar y viento a 100 m) y la generación bruta mensual del SEN por tecnología (datos.gob.cl, CNE, por central), ambos versionados en `data/real/`. La solar y la eólica siguen el clima horario real, y la energía de cada mes (solar, eólica y total) es igual a la cifra real del SEN; la eólica se limita a los 5,5 GW instalados.
+**Qué es real.** En la sección de machine learning del comienzo, todo: la generación bruta horaria del SEN del archivo público del Coordinador (2018-2025, serie procesada versionada como `data/real/sen_hourly_real.csv.gz`), la temperatura de Santiago (Open-Meteo) y los feriados (Nager.Date). En §1-§7: el clima horario en cinco subestaciones del SEN (Open-Meteo, reanálisis ERA5: irradiancia solar y viento a 100 m) y la generación bruta mensual del SEN por tecnología (datos.gob.cl, CNE, por central), ambos versionados en `data/real/`. La solar y la eólica siguen el clima horario real, y la energía de cada mes (solar, eólica y total) es igual a la cifra real del SEN; la eólica se limita a los 5,5 GW instalados.
 
 **Qué es simulado.** El perfil hora a hora de la demanda (doble punta, factores por día de semana, ruido) y el piso de 1.200 MW de generación mínima sobre la demanda neta. El Coordinador Eléctrico Nacional publica datos horarios reales, pero su API exige una cuenta institucional y su sitio bloquea las descargas automatizadas, así que no se usan aquí. `generate_sen_data(..., real = FALSE)` sigue produciendo la serie original completamente simulada.
 

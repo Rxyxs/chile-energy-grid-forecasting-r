@@ -3,6 +3,10 @@ data/*.csv
 data/*.rds
 output/models/*.rds
 output/tables/*.csv
+output/tables/*.csv.gz
+# XLSX del CEN (8,5 MB): R/10_real_hourly_data.R lo descarga si falta.
+# La serie horaria procesada (data/real/sen_hourly_real.csv.gz) si se versiona.
+data/real/cen/
 
 # output/figures/*.png NO se ignora: el README las referencia y documenta por
 # nombre, asi que tienen que renderizar en GitHub sin correr el pipeline. Son
