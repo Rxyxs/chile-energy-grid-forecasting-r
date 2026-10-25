@@ -44,6 +44,28 @@
 <a href="https://github.com/Rxyxs/chile-energy-grid-forecasting-r#readme">Full README</a>
 </div></header>
 <p>This page shows the project's results. The methodology, the design decisions and the limitations are documented in the repository's README.</p>
+<h2>Real hourly data and day-ahead machine learning (2018-2025)</h2>
+<p>70,128 real hours of the SEN from the Coordinador&#x27;s public hourly-generation file, with Santiago temperature and holidays. Every input is at least 48 hours old; LightGBM is trained on 2018-2023, tuned on 2024 and tested on 2025, which it never saw.</p>
+<figure>
+<img src="figures/real_sen_hourly_heatmap.png" alt="Every hour of Chile&#x27;s grid, 2018-2025" loading="lazy">
+<figcaption>Each column is a day, each row an hour. The grid grows, winter evenings are the old peak, and from 2023 the brightest band moves to midday. The 2025 sheet listed its hours alphabetically; the 25 February 2025 blackout is what gave it away.</figcaption>
+</figure>
+<figure>
+<img src="figures/ml_forecast_two_weeks.png" alt="Day-ahead forecast on two weeks of 2025" loading="lazy">
+<figcaption>Two winter weeks of 2025 with the median forecast and its conformal P10-P90 band, against the same hour a week earlier.</figcaption>
+</figure>
+<figure>
+<img src="figures/ml_model_comparison.png" alt="Model and loss comparison on 2025" loading="lazy">
+<figcaption>On 2025, LightGBM on a relative target (each hour divided by last week&#x27;s mean) scores 2.48% MAPE against 2.69% in MW, 3.35% for STL + ETS and 3.61% for the weekly naive forecast; the asymmetric loss trades a little MAPE for a lower cost of under-forecasting.</figcaption>
+</figure>
+<figure>
+<img src="figures/ml_yearly_cv.png" alt="Rolling-origin validation by year" loading="lazy">
+<figcaption>The relative target beats the MW target and the naive forecast in every test year from 2021 to 2025.</figcaption>
+</figure>
+<figure>
+<img src="figures/real_file_definition_break.png" alt="Hourly sum against the official monthly total" loading="lazy">
+<figcaption>The hourly file changed definition in 2025: its monthly sums now equal the official total, and the evening hours drop by about 1 GW, which is why 2025 is the hardest year for every method.</figcaption>
+</figure>
 <h2>7.3 Residual diagnostics -- the lag-24 investigation</h2>
 <figure>
 <img src="figures/residuals_arima.png" alt="Residual diagnostics -- ARIMA + Fourier K=12" loading="lazy">
