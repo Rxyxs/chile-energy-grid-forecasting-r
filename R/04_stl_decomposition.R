@@ -50,7 +50,7 @@ plot_two_week_zoom <- function(hourly_ts, path) {
     geom_line(color = "#2C5F8A", linewidth = 0.5) +
     labs(
       title = "Hourly demand -- detail of the last 2 weeks",
-      subtitle = "Double-peak curve (morning / evening) and lower weekend demand",
+      subtitle = "Real SEN demand: one midday peak in summer 2025, lower on weekends and holidays",
       x = NULL, y = "Demand (MW)"
     ) +
     theme_minimal(base_size = 11)

@@ -84,3 +84,14 @@ test_that("real mode matches the real monthly SEN energy and stays physically bo
 test_that("real mode refuses a range that the real series do not cover", {
   expect_error(generate_sen_data(as.Date("2019-01-01"), as.Date("2019-01-02"), real = TRUE))
 })
+
+test_that("demand_source = 'cen' uses the real hourly CEN series and flags the blackout", {
+  sen <- generate_sen_data(as.Date("2025-02-20"), as.Date("2025-03-02"), real = TRUE, demand_source = "cen")
+  r <- readr::read_csv(resolve_repo_path("data/real/sen_hourly_real.csv.gz"), show_col_types = FALSE)
+  key <- format(lubridate::with_tz(sen$datetime, "UTC"), "%Y-%m-%d %H")
+  real <- r$gen_mw[match(key, format(r$ts_utc, "%Y-%m-%d %H"))]
+  ok <- !sen$demand_imputed
+  expect_equal(sen$demand_mw[ok], round(real[ok], 1))
+  expect_true(sum(sen$demand_imputed) >= 15)              # el apagon del 25 de febrero
+  expect_true(all(sen$demand_mw > 4000))   # la recuperacion del 26 de febrero baja a ~4.200 MW reales
+})

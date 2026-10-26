@@ -66,23 +66,31 @@
 <img src="figures/real_file_definition_break.png" alt="Hourly sum against the official monthly total" loading="lazy">
 <figcaption>The hourly file changed definition in 2025: its monthly sums now equal the official total, and the evening hours drop by about 1 GW, which is why 2025 is the hardest year for every method.</figcaption>
 </figure>
-<h2>7.3 Residual diagnostics -- the lag-24 investigation</h2>
+<figure>
+<img src="figures/real_file_vs_daily_reports.png" alt="Hourly file against the daily reports, with and without batteries" loading="lazy">
+<figcaption>The Coordinador&#x27;s daily operation reports list each day&#x27;s generation by technology, batteries included (706 of 731 days of 2024-2025 parsed from the PDFs). In 2025 the hourly file matches the reports&#x27; total <em>without</em> batteries to within 1.3 GWh a day, while batteries delivered 5.4 GWh a day, mostly in the evening: the 2025 file stopped counting battery discharge. In 2024 the file exceeds even the total with batteries by about 3 GWh a day, which remains unexplained.</figcaption>
+</figure>
+<figure>
+<img src="figures/real_curtailment_by_hour.png" alt="Real hourly curtailment by year" loading="lazy">
+<figcaption>Solar and wind energy the grid could not absorb, aggregated from the plant-level hourly dataset of Reyes Cerda and Cea Morales (Zenodo, CC BY 4.0): from 1,471 GWh in 2022 to 6,044 GWh in 2025, almost all of it solar between 9 am and 6 pm, the same hours where gross generation now peaks.</figcaption>
+</figure>
+<h2>Classical statistical models on real demand</h2>
+<p>ARIMA + Fourier, TBATS, SARIMAX, ETS and GARCH now run on the same real hourly demand (2024-2025), with solar and wind reconstructed from real weather and anchored to each day&#x27;s real energy from the daily reports. Until this round only the monthly energy of the series was real. The headline changed: on the 14-day holdout, 18-31 December 2025, the same hour of the previous day scores <strong>5.81% MAPE</strong>, against 7.01% for TBATS and 7.39% for ARIMA + Fourier. On the simulated series both beat it (4.28% and 4.54% against 6.73%). The holdout is Christmas and New Year, and in the hourly rolling-origin validation the worst window (8.57%) is the one containing Fiestas Patrias: none of these models knows a day is a holiday, while the LightGBM model above, which does, scores 2.48% over all of 2025. ETS on daily demand is the classical model that survives real data (1.91% against 2.78% for the weekly naive forecast in cross-validation). The GARCH estimate on wind ramps is not robust: anchoring wind to daily instead of monthly real energy moves it from α 0.010 / β 0.989 to α 0.363 / β 0.573.</p>
 <figure>
 <img src="figures/residuals_arima.png" alt="Residual diagnostics -- ARIMA + Fourier K=12" loading="lazy">
-<figcaption><strong>How to read it</strong>: the three panels are the residual series, its ACF and its distribution. The spike at lag 24 in the middle panel is the whole subject of this section -- it is what survives after the daily Fourier basis is taken to its Nyquist limit. The residuals are otherwise centred and roughly symmetric. A model can be unbiased and still be leaving structure on the table, and only the ACF shows it.</figcaption>
+<figcaption><strong>How to read it</strong>: the three panels are the residual series, its ACF and its distribution. The lag-24 autocorrelation is 0.417 with the daily Fourier basis at its Nyquist limit (0.436 with K=4, 0.454 with TBATS), and Ljung-Box rejects white noise for all three. On the simulated series the known generating process proved the spike was a modelling artifact; on real data part of it is probably genuine, since weather, holidays and outages persist from one day to the next. The largest residual by far, about 4,250 MW, is on 26 February 2025, where the imputed blackout hours meet the real recovery.</figcaption>
 </figure>
-<h2>7.4 Generated figures</h2>
 <figure>
 <img src="figures/stl_decomposition.png" alt="STL decomposition of hourly SEN demand" loading="lazy">
-<figcaption>The decomposition separates the series into trend, daily season, weekly season and remainder. Two things are worth reading off it. The trend panel moves within about 9,000-10,250 MW, highest in winter (June-July) and early summer, with visible jumps at month boundaries: those are the monthly scaling to real SEN energy, and they are also why TBATS stops helping in §7.3. And the <code>season_day</code> panel is a <em>solid black band</em> — at two years of hourly resolution there are roughly 730 daily cycles on the page, so the individual shape is impossible to see. That is exactly why the next figure exists:</figcaption>
+<figcaption>Trend, daily season, weekly season and remainder of real hourly demand. The trend moves between about 9,200 and 10,450 MW. The remainder is where real data differs most from the simulated series: sharp negative spikes on New Year, Christmas, 1 May, Navy Day and Fiestas Patrias, and the deepest one on 26 February 2025, the recovery after the national blackout. The remainder&#x27;s variance is now larger than the trend&#x27;s and twice what the simulator produced.</figcaption>
 </figure>
 <figure>
 <img src="figures/demand_two_week_zoom.png" alt="Two-week detail of hourly demand" loading="lazy">
-<figcaption>At two weeks the real shape appears: a double peak each weekday (morning and evening) separated by a midday dip, with weekends visibly lower and flatter. The double peak is what makes <code>K=4</code> insufficient as a daily Fourier basis — four harmonics cannot represent two peaks per cycle plus the asymmetry between them, which is the mechanism behind the lag-24 residual spike that §7.3 is about.</figcaption>
+<figcaption>The last two weeks of 2025: one peak at midday rather than the morning and evening peaks the simulator drew, lower weekends, and Christmas Day well below the rest. The single midday peak is summer, high solar and a 2025 file that no longer counts battery discharge in the evening.</figcaption>
 </figure>
 <figure>
 <img src="figures/forecast_arima_demand.png" alt="ARIMA + Fourier forecast with 80%/95% uncertainty bands" loading="lazy">
-<figcaption>Ten days of training context followed by fourteen days forecast. The model keeps the double-peak shape through the whole horizon. Note the asymmetry of the bands: they are tight around the peaks and much wider around the overnight troughs, so the forecast is considerably less certain about how low demand goes at night than about how high it goes during the day.</figcaption>
+<figcaption>Ten days of context and the fourteen-day forecast: the model repeats an average weekly shape and cannot anticipate the Christmas and New Year dips, which is where its error on the holdout comes from.</figcaption>
 </figure>
 <footer>
 Pablo Reyes · <a href="https://github.com/Rxyxs/chile-energy-grid-forecasting-r">github.com/Rxyxs/chile-energy-grid-forecasting-r</a> · MIT<br><br>

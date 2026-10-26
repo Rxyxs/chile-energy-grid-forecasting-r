@@ -20,6 +20,8 @@ library(tibble)
 
 REAL_WEATHER_PATH <- "data/real/weather_hourly_open_meteo.csv.gz"
 REAL_GENERATION_PATH <- "data/real/sen_generacion_mensual.csv"
+REAL_HOURLY_DEMAND_PATH <- "data/real/sen_hourly_real.csv.gz"
+REAL_DAILY_TECH_PATH <- "data/real/cen_daily_by_technology.csv"
 
 # Peso de cada subestacion en la forma horaria nacional: la solar se concentra en el
 # norte (Atacama/Antofagasta) y la eolica en el sur (Biobio) y el norte grande.
@@ -74,6 +76,25 @@ scale_to_monthly_energy <- function(hourly, month_key, real_mwh_by_month) {
   as.numeric(hourly * unname(factor[month_key]))
 }
 
+#' Reescala cada dia a la energia real de ese dia (informes diarios del CEN,
+#' R/13_cen_daily_reports.R); los dias sin informe conservan el escalamiento mensual.
+#' El factor de cada dia se ancla a su mediodia y se interpola hora a hora entre
+#' dias: un factor escalonado haria saltar la serie a medianoche, y esos saltos
+#' se leerian como rampas (inflan la volatilidad que estima el GARCH de R/07).
+#' Una segunda pasada corrige el pequeno desvio que deja la interpolacion.
+scale_to_daily_energy <- function(hourly, day_key, real_mwh_by_day, passes = 3) {
+  out <- hourly
+  days <- unique(day_key)
+  mid <- vapply(days, function(d) { i <- which(day_key == d); i[ceiling(length(i) / 2)] }, integer(1))
+  for (k in seq_len(passes)) {
+    sums <- tapply(out, day_key, sum)[days]
+    f <- real_mwh_by_day[days] / sums
+    f[!is.finite(f)] <- 1
+    out <- out * approx(mid, f, xout = seq_along(out), rule = 2)$y
+  }
+  as.numeric(out)
+}
+
 #' Lee el clima real y lo deja en una fila por hora local con el promedio ponderado
 #' nacional de la GHI y de la fraccion de potencia eolica.
 #' Las rutas de data/real/ son relativas a la raiz del repo; los tests corren desde
@@ -107,7 +128,27 @@ load_real_generation <- function(path = REAL_GENERATION_PATH) {
 #' @param real TRUE para anclar a datos reales (clima horario y energia mensual);
 #'   requiere que el rango este cubierto por data/real/. FALSE = simulador original.
 #' @return tibble con datetime, demand_mw, solar_mw, wind_mw, net_demand_mw
-generate_sen_data <- function(start_date, end_date, seed = 42, real = TRUE) {
+#' Demanda horaria REAL: generacion bruta horaria del archivo publico del CEN
+#' (R/10_real_hourly_data.R). Las horas anomalas (apagon del 25-feb-2025) o que
+#' el archivo no trae se rellenan con la misma hora de la semana anterior y
+#' quedan marcadas en `demand_imputed`.
+load_real_hourly_demand <- function(datetime, path = REAL_HOURLY_DEMAND_PATH) {
+  r <- readr::read_csv(resolve_repo_path(path), show_col_types = FALSE)
+  key <- format(with_tz(datetime, "UTC"), "%Y-%m-%d %H")
+  idx <- match(key, format(r$ts_utc, "%Y-%m-%d %H"))
+  if (mean(is.na(idx)) > 0.01) stop("El rango pedido no esta cubierto por data/real/sen_hourly_real.csv.gz")
+  y <- r$gen_mw[idx]
+  imputed <- is.na(y)
+  for (i in which(imputed)) y[i] <- if (i > 168 && !is.na(y[i - 168])) y[i - 168] else NA
+  y <- approx(seq_along(y), y, xout = seq_along(y), rule = 2)$y
+  list(demand_mw = y, imputed = imputed)
+}
+
+#' @param demand_source "cen" usa la demanda horaria real del CEN (solo con
+#'   real = TRUE); "simulated" mantiene el perfil simulado escalado mes a mes.
+generate_sen_data <- function(start_date, end_date, seed = 42, real = TRUE,
+                              demand_source = c("simulated", "cen")) {
+  demand_source <- match.arg(demand_source)
   set.seed(seed)
 
   datetime <- seq(
@@ -196,7 +237,23 @@ generate_sen_data <- function(start_date, end_date, seed = 42, real = TRUE) {
     # Tope en la capacidad eolica instalada del SEN (~5,3 GW a fines de 2025): el escalamiento mensual
     # puede empujar algunas horas de viento fuerte por sobre lo fisicamente posible.
     wind_mw <- pmin(wind_mw, WIND_INSTALLED_MW)
-    demand_mw <- scale_to_monthly_energy(pmax(1, demand_mw), month_key, real_total)
+    if (demand_source == "cen") {
+      # Con la demanda real, la solar y la eolica se anclan tambien a la energia
+      # DIARIA real de los informes del Coordinador, no solo a la mensual.
+      daily_path <- tryCatch(resolve_repo_path(REAL_DAILY_TECH_PATH), error = function(e) NULL)
+      if (!is.null(daily_path)) {
+        dt <- readr::read_csv(daily_path, show_col_types = FALSE)
+        day_key <- format(datetime, "%Y-%m-%d")
+        solar_mw <- scale_to_daily_energy(solar_mw, day_key, setNames(dt$solar * 1000, format(dt$date)))
+        wind_mw <- pmin(scale_to_daily_energy(wind_mw, day_key, setNames(dt$eolica * 1000, format(dt$date))),
+                        WIND_INSTALLED_MW)
+      }
+      cen <- load_real_hourly_demand(datetime)
+      demand_mw <- cen$demand_mw
+      demand_imputed <- cen$imputed
+    } else {
+      demand_mw <- scale_to_monthly_energy(pmax(1, demand_mw), month_key, real_total)
+    }
   }
 
   # ---- Demanda neta ----
@@ -211,6 +268,7 @@ generate_sen_data <- function(start_date, end_date, seed = 42, real = TRUE) {
     net_demand_mw = round(net_demand_mw, 1)
   )
   if (!real) out$wind_volatility_sigma <- round(garch$sigma, 4)
+  if (real && demand_source == "cen") out$demand_imputed <- demand_imputed
   out
 }
 
@@ -220,7 +278,8 @@ if (sys.nframe() == 0) {
   start_date <- as.Date("2024-01-01")
   end_date <- as.Date("2025-12-31")
 
-  sen_data <- generate_sen_data(start_date, end_date, seed = 42, real = TRUE)
+  # Desde la Fase "datos horarios reales": la demanda es la del CEN, no el perfil simulado.
+  sen_data <- generate_sen_data(start_date, end_date, seed = 42, real = TRUE, demand_source = "cen")
 
   dir.create("data", showWarnings = FALSE)
   readr::write_csv(sen_data, "data/sen_hourly.csv")
