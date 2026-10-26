@@ -75,64 +75,24 @@ cat(sprintf("ACF residual en lag 24: %.4f\n", acf_baseline$acf[25]))
 cat(sprintf("Ljung-Box (lag=24): X-squared=%.1f, p-value=%.3e\n", lb_baseline$statistic, lb_baseline$p.value))
 ```
 
-Confirmado: `ACF(lag24) ≈ 0.39`, y Ljung-Box rechaza sin ambiguedad la hipotesis
+Confirmado: `ACF(lag24) ≈ 0.44`, y Ljung-Box rechaza sin ambiguedad la hipotesis
 de ruido blanco (p ≈ 0). Este es el punto de partida.
 
-## 3. Verificacion independiente: ¿el problema es de los datos o del modelo?
+## 3. ¿El problema es de los datos o del modelo?
 
-Antes de intentar corregirlo, vale la pena confirmar que la autocorrelacion es
-un problema de **especificacion del modelo**, no una propiedad genuina de la
-serie. La demanda horaria se construye (`R/01_generate_synthetic_data.R`) como
-una funcion determinista conocida (tendencia + dia de semana + estacionalidad
-anual + forma horaria) mas ruido `rnorm` independiente, y despues cada mes se
-escala para que su energia iguale la generacion total real del SEN. Si se
-reconstruye ese componente determinista, con el mismo factor mensual, y se resta
-de `demand_mw`, el residuo "verdadero" es el ruido escalado y no deberia tener
-autocorrelacion alguna.
+Con la serie semisintetica anterior esta pregunta tenia respuesta exacta: la
+demanda se construia como una funcion determinista conocida mas ruido
+independiente, y restando esa funcion quedaba ruido blanco
+(`ACF(lag24) ≈ 0.004`, Ljung-Box no rechazaba). El pico del modelo era entonces
+un artefacto de especificacion, no una señal que el modelo no vio.
 
-```{r verificacion-dgp}
-source("../R/01_generate_synthetic_data.R")
-
-sen_data <- readr::read_csv("../data/sen_hourly.csv", show_col_types = FALSE)
-
-datetime <- seq(
-  from = as.POSIXct("2024-01-01 00:00:00", tz = "America/Santiago"),
-  to = as.POSIXct("2025-12-31 23:00:00", tz = "America/Santiago"),
-  by = "hour"
-)
-n <- length(datetime)
-hour_of_day <- lubridate::hour(datetime)
-day_of_year <- lubridate::yday(datetime)
-weekday <- lubridate::wday(datetime, week_start = 1)
-years_elapsed <- as.numeric(difftime(datetime, datetime[1], units = "days")) / 365.25
-
-trend_factor <- (1 + 0.03)^years_elapsed
-weekday_factor <- dplyr::case_when(weekday == 6 ~ 0.90, weekday == 7 ~ 0.84, TRUE ~ 1.00)
-annual_factor <- 1 + 0.12 * cos(2 * pi * (day_of_year - 195) / 365.25)
-daily_factor <- daily_shape(hour_of_day)
-deterministic <- 8000 * trend_factor * weekday_factor * annual_factor * daily_factor
-
-# Mismo escalamiento mensual que el generador: la energia de cada mes = generacion total real.
-month_key <- format(datetime, "%Y-%m")
-gen <- load_real_generation("../data/real/sen_generacion_mensual.csv")
-deterministic_scaled <- scale_to_monthly_energy(deterministic, month_key,
-                                                setNames(gen$total_mwh, gen$month))
-true_residual <- sen_data$demand_mw - deterministic_scaled
-
-acf_true <- acf(true_residual, lag.max = 30, plot = FALSE)
-lb_true <- Box.test(true_residual, lag = 24, type = "Ljung-Box", fitdf = 0)
-
-cat(sprintf("sd(residuo verdadero) = %.1f MW\n", sd(true_residual)))
-cat(sprintf("ACF(lag24) del residuo verdadero: %.4f\n", acf_true$acf[25]))
-cat(sprintf("Ljung-Box (lag=24) del residuo verdadero: p=%.3f\n", lb_true$p.value))
-```
-
-**Confirmado: el proceso generador no tiene autocorrelacion genuina en 24
-horas** (`ACF(lag24) ≈ 0.004`, Ljung-Box no rechaza ruido blanco). El pico de
-0.39 en el modelo ajustado es enteramente un artefacto de como
-`fable::ARIMA()` combina regresores de Fourier con la maquinaria de
-"regresion con errores ARIMA" sobre esta serie -- no una señal real que el
-modelo simplemente no vio.
+Desde que la demanda es la serie horaria real del Coordinador
+(`R/10_real_hourly_data.R`), esa verificacion ya no existe: no hay un proceso
+generador conocido que restar. En datos reales parte de la autocorrelacion en
+24 horas puede ser genuina (el clima, los feriados y los cortes persisten de un
+dia al siguiente), asi que un pico en el lag 24 ya no prueba por si solo que el
+modelo este mal especificado. Lo que si sigue valiendo es comparar modelos entre
+si con la misma serie, que es lo que hacen las secciones siguientes.
 
 ## 4. Intentos de correccion (documentados, incluyendo los que no funcionaron)
 
@@ -142,18 +102,19 @@ menos util metodologicamente.
 
 | # | Alternativa | Resultado | Veredicto |
 |---|---|---|---|
-| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.3880 → 0.3470 | Mejora real, parcial (-10.6%) |
-| 2 | `K` semanal 2 → 6/12/20 (con K diario=12) | ACF(lag24) **empeora** hasta 0.469 | Descartado |
-| 3 | `log(demand_mw)` en vez de nivel | ACF(lag24) = 0.402, sin mejora | Descartado |
+| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.436 → 0.417 | Mejora pequena (-4.4%; -10.6% con la serie semisintetica) |
+| 2 | `K` semanal 2 → 6/12/20 (con K diario=12) | ACF(lag24) = 0.403 / 0.413 / 0.496 | K=6 mejora algo (-7.6% vs. K=4 diario); K=20 empeora. Los armonicos semanales 7 y 14 coinciden con los diarios y `fable` los descarta por colinealidad. Con la serie semisintetica todos empeoraban |
+| 3 | `log(demand_mw)` en vez de nivel (con K diario=12) | ACF(lag24) = 0.395 | **La mejor correccion con datos reales** (-9.4%); con la serie semisintetica no mejoraba (0.402) |
 | 4 | `PDQ(P=1,D=0,Q=1,period=24)`, sin Fourier diario | `fable::ARIMA()` falla: raices caracteristicas inestables | No disponible |
 | 5 | Diferenciacion estacional `D=1` en periodo 24 | Misma falla que #4 | No disponible |
-| 6 | TBATS (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = 0.3979 | Sin mejora sobre la serie anclada a datos reales (+2.6%); con la serie simulada anterior bajaba a 0.159 |
+| 6 | TBATS (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = 0.454 | Empeora (+4.0%); con la serie simulada original bajaba a 0.159 |
 
 Las filas 1 y 6 de esta tabla son valores escritos a mano. La tabla calculada de la
 seccion 7 los recomputa desde los modelos guardados en cada render, asi que es ella
 la que manda: si difieren, la de la seccion 7 es la correcta y esta quedo atrasada.
-Las filas 2-5 vienen de ajustes exploratorios que no quedaron en el pipeline
-numerado, y por eso no se recomputan en ningun lado.
+Las filas 2 y 3 se recalcularon sobre la demanda real con ajustes exploratorios que
+no quedaron en el pipeline numerado; las filas 4 y 5 son de la serie semisintetica
+y no se volvieron a correr.
 
 Los intentos #4 y #5 son la misma clase de falla ya documentada en este
 proyecto (ver README, seccion 6, sobre el bug de busqueda automatica de `d`
@@ -263,25 +224,27 @@ cat(sprintf("\nMAPE promedio sobre %d origenes: %.2f%% (desvio: %.2f)\n",
 
 ## 9. Conclusion honesta
 
-- **El problema no era de los datos.** El residuo reconstruido a partir del
-  componente determinista exacto del generador es, en la practica,
-  ruido blanco (ACF(lag24)=0.004). La autocorrelacion de 0.39 es un artefacto
-  de especificacion del modelo, no una señal real que se estuviera perdiendo.
-- **Ninguna correccion probada elimina el problema por completo.** Aumentar
-  `K` a su limite de Nyquist (12) reduce el ACF(lag24) en 10.6%, la unica
-  mejora que se sostiene. TBATS, que con la serie simulada anterior lo bajaba
-  en 61%, no lo reduce sobre la serie anclada a la generacion mensual real
-  (0.398 vs. 0.388): el escalamiento mensual cambia el nivel de la serie al
-  pasar de un mes a otro, y TBATS absorbe ese salto en sus estados en vez de
-  la forma diaria. Ninguna de las dos pasa la prueba de Ljung-Box.
+- **Con datos reales ya no se puede separar el modelo de los datos.** Con la
+  serie simulada, el residuo reconstruido desde el componente determinista
+  exacto del generador era ruido blanco (ACF(lag24)=0.004), y eso probaba que
+  la autocorrelacion era un artefacto del modelo. Con la demanda horaria real
+  del CEN no hay generador que restar, y parte de la autocorrelacion a 24 horas
+  probablemente es genuina: el clima, los feriados y las fallas persisten de un
+  dia al siguiente.
+- **Ninguna correccion probada elimina el problema.** Aumentar `K` a su limite
+  de Nyquist (12) baja el ACF(lag24) de 0.436 a 0.417 (-4.4%, contra -10.6% con
+  la serie semisintetica); modelar el logaritmo lo baja a 0.395 (-9.4%), la mejor
+  correccion con datos reales, y era la que no servia con la serie semisintetica.
+  TBATS lo sube a 0.454 (+4.0%). Ninguno pasa la prueba de Ljung-Box.
 - **Dos alternativas clasicas de libro (PDQ estacional explicito, diferenciacion
   estacional en el lag 24) fallan directamente** en `fable::ARIMA()` sobre esta
   serie especifica, con el mismo tipo de error interno ya documentado en este
   proyecto para la busqueda automatica de `d`. Vale la pena registrarlo como
   limite conocido de la libreria en este caso de uso, no como error propio.
-- **Recomendacion honesta para produccion**: TBATS sigue siendo el pronosticador
-  puntual mas preciso (seccion 7.1 del README), pero ya no es la opcion para
-  reducir la autocorrelacion residual; para eso, y para soportar regresores
-  exogenos (SARIMAX con solar/eolica) con un ajuste mucho mas rapido, la
-  opcion es ARIMA + Fourier (K=12). Ninguna de las dos es una solucion
-  completa, y decir lo contrario seria menos util que reportar el resultado real.
+- **Recomendacion honesta para produccion**: con la demanda real ni TBATS ni
+  ARIMA + Fourier le ganan al pronostico ingenuo en el holdout de Navidad
+  (seccion 7.1 del README), y la validacion movil se degrada en Fiestas Patrias.
+  El error horario sale de los feriados, no de la forma diaria: el siguiente paso
+  es agregar el calendario de feriados como regresor, como ya lo tiene el modelo
+  LightGBM del comienzo del README. ARIMA + Fourier (K=12) sigue siendo la base
+  para regresores exogenos (SARIMAX con solar/eolica) por su ajuste rapido.

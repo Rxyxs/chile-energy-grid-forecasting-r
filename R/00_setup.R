@@ -24,6 +24,8 @@ required_packages <- c(
   "readxl",      # lee el XLSX horario real del CEN (R/10)
   "jsonlite",    # APIs de clima (Open-Meteo) y feriados (Nager.Date) (R/10, R/11)
   "lightgbm",    # gradient boosting del pronostico del dia siguiente (R/11)
+  "pdftools",    # lee los informes diarios de operacion del CEN (R/13)
+  "nanoparquet", # lee el parquet de vertimiento de Zenodo (R/13)
   "testthat"     # tests unitarios (tests/testthat.R)
 )
 

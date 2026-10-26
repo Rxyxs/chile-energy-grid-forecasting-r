@@ -134,3 +134,47 @@ p6 <- ggplot(gap, aes(month, gap_pct, fill = month >= as.Date("2025-01-01"))) +
        x = NULL, y = "Hourly sum vs. official monthly, %") +
   theme_minimal(base_size = 10) + theme(legend.position = "top", plot.title = element_text(face = "bold"))
 save(p6, "real_file_definition_break.png", 10, 4.2)
+
+# 7. Vertimiento horario real (Zenodo 10.5281/zenodo.21198817): energia solar y
+#    eolica que el sistema no pudo absorber, por hora del dia y ano.
+cur <- read_csv("data/real/curtailment_hourly_sen.csv.gz", show_col_types = FALSE) |>
+  mutate(year = as.integer(format(fecha, "%Y")), hour = hora - 1L) |>
+  filter(year <= 2025)
+cur_prof <- cur |> group_by(year, hour) |>
+  summarise(Solar = mean(solar_curtailed_mwh), Wind = mean(wind_curtailed_mwh), .groups = "drop") |>
+  tidyr::pivot_longer(c(Solar, Wind), names_to = "tech", values_to = "mw")
+cur_year <- cur |> group_by(year) |> summarise(gwh = (sum(solar_curtailed_mwh) + sum(wind_curtailed_mwh)) / 1000)
+write_csv(cur_year, file.path(TAB, "curtailment_by_year.csv"))
+p7 <- ggplot(cur_prof, aes(hour, mw, colour = factor(year))) +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~tech, scales = "free_y") +
+  scale_colour_viridis_d(name = NULL, end = 0.9) +
+  scale_x_continuous(breaks = seq(0, 23, 3)) +
+  labs(title = "Solar the grid could not absorb: real hourly curtailment, 2022-2025",
+       subtitle = sprintf("Mean curtailed MW by hour (CEN data, Reyes Cerda & Cea Morales 2026, CC BY 4.0). Total: %s GWh in 2022, %s GWh in 2025",
+                          format(round(cur_year$gwh[cur_year$year == 2022]), big.mark = ","),
+                          format(round(cur_year$gwh[cur_year$year == 2025]), big.mark = ",")),
+       x = "Hour of day (hour starting)", y = "Mean curtailed MW") +
+  theme_minimal(base_size = 10) + theme(legend.position = "top", plot.title = element_text(face = "bold"))
+save(p7, "real_curtailment_by_hour.png", 10, 4.4)
+
+# 8. Que cuenta el archivo horario: contra la suma diaria por tecnologia de los
+#    informes del Coordinador (R/13), con y sin baterias.
+tech <- read_csv("data/real/cen_daily_by_technology.csv", show_col_types = FALSE) |>
+  mutate(no_bess = eolica + geotermica + hidraulica + solar + termica)
+hd <- d |> group_by(date) |> summarise(hourly_gwh = sum(gen_mw) / 1000, ok = all(!is.na(gen_mw)) & n() >= 23, .groups = "drop")
+qd <- inner_join(tech, hd, by = "date") |> filter(ok, !is.na(no_bess)) |>
+  mutate(q = paste0(format(date, "%Y"), " Q", (as.integer(format(date, "%m")) - 1) %/% 3 + 1)) |>
+  group_by(q) |>
+  summarise(`Hourly file minus reports without batteries` = mean(hourly_gwh - no_bess),
+            `Battery discharge (reports)` = mean(bess), .groups = "drop")
+write_csv(qd, file.path(TAB, "hourly_file_vs_daily_reports.csv"))
+p8 <- ggplot(tidyr::pivot_longer(qd, -q), aes(q, value, fill = name)) +
+  geom_col(position = position_dodge(0.75), width = 0.7) +
+  geom_hline(yintercept = 0, colour = "grey30", linewidth = 0.3) +
+  scale_fill_manual(values = c("#c0392b", "#1f4e79"), name = NULL) +
+  labs(title = "From 2025 the hourly file leaves battery discharge out",
+       subtitle = "GWh per day, quarterly mean. In 2025 the file matches the daily reports without batteries; in 2024 it exceeds them by more than the batteries delivered",
+       x = NULL, y = "GWh per day") +
+  theme_minimal(base_size = 10) + theme(legend.position = "top", plot.title = element_text(face = "bold"))
+save(p8, "real_file_vs_daily_reports.png", 10, 4.4)
