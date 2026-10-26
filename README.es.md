@@ -109,16 +109,16 @@ Este proyecto construye el stack estadístico completo para abordar ambos proble
 |---|---|---|
 | **Pronóstico del día siguiente con datos horarios reales, año de prueba 2025** | **MAPE 2,48%, MASE 0,90** | LightGBM con objetivo relativo, 31% bajo el ingenuo semanal (3,61%) y 26% bajo STL + ETS (3,35%); objetivo relativo elegido con 2024 |
 | Modelos horarios clásicos sobre la demanda real (TBATS, ARIMA + Fourier) | 7,01% / 7,39% vs. 5,81% del ingenuo | Ambos pierden contra el ingenuo en el holdout de Navidad y se degradan en Fiestas Patrias; con la serie simulada anterior parecían 1,6x mejores (§7.1, §7.5) |
-| Pronóstico de demanda neta con solar/eólica exógenas (SARIMAX) | RMSE 902 vs. 923 del ingenuo, MASE 0,87 vs. 0,81 | Una pequeña ventaja en RMSE y una pérdida en MASE; el MAPE se infla en las horas de mediodía cerca del piso de la demanda neta (§7.1) |
+| Pronóstico de demanda neta con solar/eólica exógenas (SARIMAX) | RMSE 800 vs. 561 del ingenuo, MASE 1,06 vs. 0,68 | Con la solar y la eólica horarias reales, SARIMAX pierde contra el ingenuo en todas las métricas (§7.1) |
 | Demanda diaria, validación cruzada de origen móvil (ETS vs. ingenuo) | MAPE 1,91% vs. 2,78% | El modelo clásico que sobrevive a los datos reales; también gana el holdout de 28 días (3,24% vs. 4,43%) |
-| GARCH(1,1) sobre las rampas eólicas horarias | α₁ 0,363, β₁ 0,573, persistencia 0,936 | No es robusto: con la eólica anclada a la energía real mensual en vez de diaria da 0,010 / 0,989; solo la persistencia alta se mantiene (§7.2) |
+| GARCH(1,1) sobre las rampas eólicas horarias reales | α₁ 0,021, β₁ 0,973, persistencia 0,994 | Medido por primera vez sobre eólica horaria real; la reconstrucción desde el clima usada antes duplicaba la volatilidad de las rampas (§7.2) |
 | Autocorrelación residual en el lag 24, mejor corrección | 0,436 → 0,417 (Fourier K=12) | Una corrección pequeña; con datos reales parte de la autocorrelación a 24 horas probablemente es genuina (§7.3) |
 
 ### 2.2 Arquitectura del Pipeline
 
 ```mermaid
 flowchart LR
-    A[01_generate_synthetic_data.R<br/>demanda horaria real del CEN + solar/eólica<br/>ancladas a la energía diaria real] --> B[02_stationarity_tests.R<br/>ADF + KPSS]
+    A[01_generate_synthetic_data.R<br/>demanda, solar y eólica<br/>horarias reales del CEN] --> B[02_stationarity_tests.R<br/>ADF + KPSS]
     B --> C[04_stl_decomposition.R<br/>estacionalidad diaria/semanal]
     C --> D1[ARIMA + Fourier /<br/>SARIMAX exogeno]
     C --> D2[ETS espacio de estados]
@@ -222,7 +222,7 @@ ADF (H0: raíz unitaria / no estacionaria) y KPSS (H0: estacionaria) se corren j
 |---|---|---|---|---|
 | Demanda horaria (nivel) | -17,09, 0,01 | Estacionaria | 1,73, 0,01 | **No estacionaria** |
 | Demanda horaria (1ra dif.) | -27,76, 0,01 | Estacionaria | 0,001, 0,10 | Estacionaria |
-| Demanda neta horaria (nivel) | -13,92, 0,01 | Estacionaria | 8,56, 0,01 | **No estacionaria** |
+| Demanda neta horaria (nivel) | -12,40, 0,01 | Estacionaria | 10,24, 0,01 | **No estacionaria** |
 | Demanda diaria promedio (nivel) | -4,69, 0,01 | Estacionaria | 0,70, 0,014 | **No estacionaria** |
 | Demanda diaria promedio (1ra dif.) | -11,45, 0,01 | Estacionaria | 0,10, 0,10 | Estacionaria |
 
@@ -246,7 +246,7 @@ La estacionalidad diaria sigue dominando, pero por un margen mucho menor: el sim
 | Modelo | AIC | AICc | BIC |
 |---|---|---|---|
 | ARIMA + Fourier (demanda), errores ARIMA(2,1,4) | 226.564 | 226.564 | 226.827 |
-| SARIMAX (demanda neta, con solar/eólica exógenas), errores ARIMA(2,1,4) | 229.425 | 229.425 | 229.704 |
+| SARIMAX (demanda neta, con solar/eólica exógenas), errores ARIMA(2,1,4) | 226.076 | 226.076 | 226.355 |
 | ETS(M,Ad,M) (demanda diaria) | 12.377,3 | 12.377,8 | 12.436,5 |
 
 Con la serie semisintética ETS elegía error y estacionalidad aditivos sin tendencia, ETS(A,N,A). Con la demanda real elige error y estacionalidad multiplicativos con tendencia amortiguada ($\phi = 0,977$) y un suavizado alto del nivel ($\alpha = 0,69$): el nivel se actualiza sobre todo con los últimos días, y así absorbe las caídas de los feriados que los modelos horarios arrastran durante toda la ventana de pronóstico. Los AIC solo son comparables dentro de una misma serie, no entre estas tres filas.
@@ -350,7 +350,7 @@ Rscript -e "rmarkdown::render('reports/02_Residual_Autocorrelation_Fourier.Rmd')
 
 ## 7. Resultados
 
-Cada número de esta sección es sobre la **demanda horaria real** del archivo del Coordinador (2024-2025), con la solar y la eólica reconstruidas desde clima real y ancladas a la energía diaria real de cada tecnología en los informes diarios del Coordinador (ver el Disclaimer de datos). Hasta esta ronda la forma hora a hora de la demanda era simulada y solo su energía mensual era real; donde una conclusión cambió, se muestra el número anterior junto al nuevo.
+Cada número de esta sección es sobre la **demanda horaria real** del archivo del Coordinador (2024-2025) y la **solar y eólica horarias reales** leídas de los informes diarios del Coordinador (95% de las horas; los días sin informe mantienen la reconstrucción desde el clima, ver el Disclaimer de datos). Hasta esta ronda la forma hora a hora de la demanda era simulada y solo su energía mensual era real; donde una conclusión cambió, se muestra el número anterior junto al nuevo.
 
 ### 7.1 Comparación de precisión de modelos
 
@@ -368,10 +368,10 @@ Cada número de esta sección es sobre la **demanda horaria real** del archivo d
 
 | Modelo | MAPE | RMSE | MASE |
 |---|---|---|---|
-| SARIMAX (solar + eólica exógenas) | 21,73% | **902** | 0,87 |
-| SNAIVE | **16,36%** | 923 | **0,81** |
+| SARIMAX (solar + eólica exógenas) | 14,43% | 800 | 1,06 |
+| SNAIVE | **8,26%** | **561** | **0,68** |
 
-SARIMAX ahora le gana al ingenuo solo en RMSE y pierde en MASE; con la serie simulada ganaba en ambas (RMSE 800 contra 1.080). El MAPE sigue engañando en demanda neta: cerca del mediodía la solar lleva la demanda neta hacia su piso, y dividir por esos valores chicos infla cualquier error.
+**Con la solar y la eólica horarias reales, SARIMAX pierde contra el ingenuo en todas las métricas.** Con la serie simulada ganaba en RMSE y MASE (800 contra 1.080); con la solar y la eólica reconstruidas desde el clima mantenía una pequeña ventaja en RMSE (902 contra 923). La solar real probablemente repite su forma diaria de un día al siguiente (el Atacama está despejado casi todo el año), lo que hace de la demanda neta de ayer un pronóstico fuerte; la reconstrucción desde el clima agregaba ruido hora a hora que hacía ver peor al ingenuo. El MAPE sigue exagerando el error en la demanda neta, porque cerca del mediodía la solar la lleva hacia su piso.
 
 **Demanda media diaria -- holdout fijo de 28 días y validación cruzada de origen móvil (13 orígenes, horizonte de 7 días):**
 
@@ -384,14 +384,19 @@ ETS es el modelo clásico que sobrevive a los datos reales: le gana al ingenuo s
 
 ### 7.2 GARCH sobre las rampas eólicas
 
-Ninguna fuente pública entrega la generación eólica hora a hora, así que la eólica horaria se reconstruye desde clima real (viento a 100 m y una curva de potencia) y se ancla a la energía real. La estimación del GARCH depende de ese anclaje:
+Hasta esta versión no había una serie eólica horaria sin cuenta en el Coordinador, así que la eólica horaria se reconstruía desde clima real (viento a 100 m y una curva de potencia) anclado a la energía real, y la estimación del GARCH dependía de ese anclaje. Ahora la eólica horaria es **real**: se lee del gráfico de áreas apiladas de los informes diarios del Coordinador, calibrado contra la tabla de energía diaria de cada informe (`src/data/cen_daily_reports.py` en [chile-energy-grid-forecasting](https://github.com/Rxyxs/chile-energy-grid-forecasting), copiado aquí como `data/real/cen_generation_hourly_by_tech.csv.gz`).
 
-| Eólica anclada a | $\alpha_1$ | $\beta_1$ | Persistencia | Volatilidad a 1 hora |
+| Eólica horaria | $\alpha_1$ | $\beta_1$ | Persistencia | Volatilidad a 1 hora |
 |---|---|---|---|---|
-| Energía mensual real (versión anterior) | 0,010 | 0,989 | 0,999 | 394 MW/h |
-| **Energía diaria real (informes diarios del Coordinador)** | **0,363** | **0,573** | **0,936** | **668 MW/h** |
+| Reconstruida, anclada a la energía mensual real | 0,010 | 0,989 | 0,999 | 394 MW/h |
+| Reconstruida, anclada a la energía diaria real | 0,363 | 0,573 | 0,936 | 668 MW/h |
+| **Real (informes diarios del Coordinador)** | **0,021** | **0,973** | **0,994** | **290 MW/h** |
 
-Con el anclaje diario, las rampas de un día de mucho viento se escalan a la energía real de ese día, así que los golpes son más grandes y se disipan más rápido. (Los factores diarios se interpolan hora a hora para que no creen saltos a medianoche: la rampa absoluta media a medianoche es 1,16 veces la del resto del día con ambos anclajes.) La persistencia alta se mantiene en ambos; la división entre $\alpha_1$ y $\beta_1$ no, y ninguna de las dos filas es una medición de la volatilidad real de la eólica horaria. La generación eólica horaria real, que el Coordinador publica solo para cuentas registradas, lo resolvería.
+**La volatilidad real de las rampas eólicas es muy persistente y menor que la que implicaba cualquiera de las reconstrucciones.** Los golpes son chicos ($\alpha_1$ 0,02) y se disipan lento ($\beta_1$ 0,97): a un día volátil le siguen días volátiles. La reconstrucción anclada a la energía diaria, que parecía la más cuidadosa, era la más alejada.
+
+![Eólica horaria real vs. la reconstrucción desde el clima](output/figures/real_wind_vs_reconstructed.png)
+
+Cuánto se equivocaba la reconstrucción, en las 16.944 horas de 2024-2025 con ambas series (`output/tables/reconstruction_vs_real_hourly.csv`): la eólica erraba el 42,5% de la energía hora a hora (correlación 0,62) y sus rampas horarias tenían un desvío de 450 MW contra 220 MW reales, el doble de la volatilidad real. La solar erraba el 26,9% (correlación 0,95), y compararla hora a hora destapó un error: Open-Meteo entrega la radiación como el promedio de la hora *anterior*, y la reconstrucción la asignaba a la siguiente, así que la solar salía con una hora de atraso (42,5% de error antes de corregirlo). Lo que queda del error solar es de forma: la generación real tiene una meseta ancha de 10:00 a 15:00 (centrales con seguidores), la radiación horizontal una campana.
 
 ### 7.3 Diagnóstico de residuos -- la investigación del lag 24
 
@@ -458,15 +463,15 @@ Llevar los modelos estadísticos a la demanda horaria real cambió el resultado 
 
 - **ARIMA + Fourier y TBATS horarios ya no le ganan al ingenuo** en el holdout cargado de feriados, y su validación móvil se degrada justo en Fiestas Patrias. Con la serie simulada, que no tenía feriados, fallas ni apagones, parecían 1,6 veces mejores que el ingenuo.
 - **ETS sobre la demanda diaria sigue ganando**, en el holdout y en la validación cruzada.
-- **SARIMAX sobre la demanda neta** mantiene una pequeña ventaja en RMSE y pierde en MASE.
-- **El resultado del GARCH no es robusto** a cómo se reconstruye la eólica horaria; solo la persistencia alta sobrevive a ambas versiones.
+- **SARIMAX sobre la demanda neta pierde contra el ingenuo** cuando la solar y la eólica son las series horarias reales.
+- **La volatilidad real de las rampas eólicas es muy persistente** (α₁ 0,02, β₁ 0,97), y las rampas horarias reales son la mitad de volátiles de lo que las hacía la reconstrucción desde el clima (desvío de 220 vs. 450 MW).
 - **El modelo que funciona a nivel horario es el que tiene calendario**: el pronóstico LightGBM del día siguiente del comienzo de este README (MAPE 2,48% en 2025).
 
-**Valor para los operadores del SEN:** un pronóstico ETS diario como base, un modelo horario que conozca el calendario de feriados para la forma del día siguiente, y una estimación de la volatilidad de las rampas eólicas tratada como indicativa hasta tener eólica horaria real.
+**Valor para los operadores del SEN:** un pronóstico ETS diario como base, un modelo horario que conozca el calendario de feriados para la forma del día siguiente, y una estimación de la volatilidad de las rampas eólicas (unos 290 MW/h a una hora) medida sobre eólica horaria real.
 
 **Limitaciones y trabajo futuro:**
 - Variables de feriado para ARIMA, SARIMAX y TBATS son el siguiente paso obvio; la evidencia de arriba dice que de ahí sale el error horario.
-- La solar y la eólica se reconstruyen hora a hora desde el clima; solo su energía diaria (y mensual) es real. La demanda neta hereda eso.
+- La solar y la eólica son series horarias reales en el 95% de las horas; los días sin un informe utilizable mantienen la reconstrucción desde el clima (marcados en `solar_wind_reconstructed`).
 - El backtest de SARIMAX usa los valores reales de solar/eólica del período de holdout, no un pronóstico de ellos.
 - El archivo horario cambió de definición en 2025 (dejó fuera la descarga de baterías); la ventana de entrenamiento 2024-2025 cruza ese cambio.
 
@@ -536,7 +541,9 @@ chile-energy-grid-forecasting-r/
 
 **Qué es real.** La demanda horaria del SEN: la generación bruta del archivo horario público del Coordinador (2018-2025, serie procesada `data/real/sen_hourly_real.csv.gz`). La generación diaria por tecnología (solar, eólica, hidráulica, térmica, geotérmica, baterías) de los informes diarios de operación del Coordinador, 706 de los 731 días de 2024-2025 (`R/13_cen_daily_reports.R`, `data/real/cen_daily_by_technology.csv`). La generación mensual del SEN por tecnología (datos.gob.cl, CNE). El clima horario en cinco subestaciones y la temperatura de Santiago (Open-Meteo, ERA5), los feriados de Chile (Nager.Date), y el vertimiento horario solar y eólico 2022-2026 agregado desde el dataset por central de Reyes Cerda y Cea Morales (Zenodo, doi:10.5281/zenodo.21198817, CC BY 4.0; `data/real/curtailment_hourly_sen.csv.gz`).
 
-**Qué está reconstruido o imputado.** La forma horaria de la solar y la eólica, desde clima real, anclada a la energía diaria real (mensual donde falta el informe del día); la demanda neta lo hereda. Las 15 horas del apagón del 25 y 26 de febrero de 2025 y las 12 horas que el archivo no trae se rellenan con la misma hora de la semana anterior para los modelos estadísticos (marcadas en `demand_imputed`) y quedan fuera de la sección de machine learning. El piso de 1.200 MW de generación mínima en la demanda neta es ilustrativo. `generate_sen_data(..., real = FALSE)` sigue produciendo la serie original completamente simulada, y `demand_source = "simulated"` la semisintética anterior.
+La generación horaria por tecnología leída de los gráficos vectoriales de los mismos informes diarios, 2022-2025 (`data/real/cen_generation_hourly_by_tech.csv.gz`, de [chile-energy-grid-forecasting](https://github.com/Rxyxs/chile-energy-grid-forecasting)): la solar y la eólica de todas las secciones.
+
+**Qué está reconstruido o imputado.** La solar y la eólica en el 5% de las horas sin un informe diario utilizable, desde clima real anclado a la energía diaria (o mensual) real, marcadas en `solar_wind_reconstructed`. Las 15 horas del apagón del 25 y 26 de febrero de 2025 y las 12 horas que el archivo no trae se rellenan con la misma hora de la semana anterior para los modelos estadísticos (marcadas en `demand_imputed`) y quedan fuera de la sección de machine learning. El piso de 1.200 MW de generación mínima en la demanda neta es ilustrativo. `generate_sen_data(..., real = FALSE)` sigue produciendo la serie original completamente simulada, y `demand_source = "simulated"` la semisintética anterior.
 
 ## Autor
 
