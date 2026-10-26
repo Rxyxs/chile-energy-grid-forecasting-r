@@ -95,3 +95,15 @@ test_that("demand_source = 'cen' uses the real hourly CEN series and flags the b
   expect_true(sum(sen$demand_imputed) >= 15)              # el apagon del 25 de febrero
   expect_true(all(sen$demand_mw > 4000))   # la recuperacion del 26 de febrero baja a ~4.200 MW reales
 })
+
+test_that("demand_source = 'cen' uses the real hourly solar and wind of the daily reports", {
+  sen <- generate_sen_data(as.Date("2024-09-06"), as.Date("2024-09-10"), real = TRUE, demand_source = "cen")
+  g <- readr::read_csv(resolve_repo_path("data/real/cen_generation_hourly_by_tech.csv.gz"), show_col_types = FALSE)
+  key <- sprintf("%s %02d", format(as.Date(g$date)), g$hour - 1)
+  i <- match(format(sen$datetime, "%Y-%m-%d %H"), key)
+  ok <- !sen$solar_wind_reconstructed
+  expect_gt(mean(ok), 0.9)
+  expect_equal(sen$solar_mw[ok], round(g$solar[i][ok], 1))
+  expect_equal(sen$wind_mw[ok], round(g$eolica[i][ok], 1))
+  expect_true(all(sen$solar_mw >= 0 & sen$wind_mw >= 0))
+})

@@ -178,3 +178,39 @@ p8 <- ggplot(tidyr::pivot_longer(qd, -q), aes(q, value, fill = name)) +
        x = NULL, y = "GWh per day") +
   theme_minimal(base_size = 10) + theme(legend.position = "top", plot.title = element_text(face = "bold"))
 save(p8, "real_file_vs_daily_reports.png", 10, 4.4)
+
+# 9. Cuanto se equivocaba la reconstruccion desde el clima: la solar y la eolica que
+#    usaban las versiones anteriores (clima ERA5 anclado a la energia diaria real)
+#    contra las horarias reales de los informes del Coordinador.
+source("R/01_generate_synthetic_data.R")
+real_sw <- generate_sen_data("2024-01-01", "2025-12-31", seed = 42, real = TRUE, demand_source = "cen")
+REAL_HOURLY_TECH_PATH <- "data/real/__sin_series_horarias__.csv"   # fuerza la reconstruccion
+rec_sw <- generate_sen_data("2024-01-01", "2025-12-31", seed = 42, real = TRUE, demand_source = "cen")
+REAL_HOURLY_TECH_PATH <- "data/real/cen_generation_hourly_by_tech.csv.gz"
+both <- tibble(datetime = real_sw$datetime, keep = !real_sw$solar_wind_reconstructed,
+               solar_real = real_sw$solar_mw, solar_rec = rec_sw$solar_mw,
+               wind_real = real_sw$wind_mw, wind_rec = rec_sw$wind_mw) |> filter(keep)
+ramp_sd <- function(x) sd(diff(x), na.rm = TRUE)
+cmp <- tibble(
+  series = c("solar", "wind"),
+  wape_pct = c(100 * sum(abs(both$solar_rec - both$solar_real)) / sum(both$solar_real),
+               100 * sum(abs(both$wind_rec - both$wind_real)) / sum(both$wind_real)),
+  correlation = c(cor(both$solar_rec, both$solar_real), cor(both$wind_rec, both$wind_real)),
+  ramp_sd_real_mw = c(ramp_sd(both$solar_real), ramp_sd(both$wind_real)),
+  ramp_sd_reconstructed_mw = c(ramp_sd(both$solar_rec), ramp_sd(both$wind_rec)),
+  hours = nrow(both)
+)
+write_csv(cmp, file.path(TAB, "reconstruction_vs_real_hourly.csv"))
+print(cmp)
+win <- both |> filter(datetime >= as.POSIXct("2025-07-01", tz = TZ_CL), datetime < as.POSIXct("2025-07-15", tz = TZ_CL)) |>
+  select(datetime, Real = wind_real, `Reconstructed from weather` = wind_rec) |>
+  tidyr::pivot_longer(-datetime)
+p9 <- ggplot(win, aes(datetime, value / 1000, colour = name)) +
+  geom_line(linewidth = 0.5) +
+  scale_colour_manual(values = c(Real = "#1f4e79", `Reconstructed from weather` = "#e67e22"), name = NULL) +
+  labs(title = "Hourly wind: what the previous version reconstructed vs. what the grid produced",
+       subtitle = sprintf("1-14 July 2025. Over 2024-2025 the reconstruction misses %.0f%% of wind energy hour by hour (correlation %.2f); same daily energy by construction",
+                          cmp$wape_pct[2], cmp$correlation[2]),
+       x = NULL, y = "GW") +
+  theme_minimal(base_size = 10) + theme(legend.position = "top", plot.title = element_text(face = "bold"))
+save(p9, "real_wind_vs_reconstructed.png", 10, 4.2)

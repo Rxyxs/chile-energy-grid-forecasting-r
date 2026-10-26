@@ -22,6 +22,11 @@ REAL_WEATHER_PATH <- "data/real/weather_hourly_open_meteo.csv.gz"
 REAL_GENERATION_PATH <- "data/real/sen_generacion_mensual.csv"
 REAL_HOURLY_DEMAND_PATH <- "data/real/sen_hourly_real.csv.gz"
 REAL_DAILY_TECH_PATH <- "data/real/cen_daily_by_technology.csv"
+# Generacion HORARIA real por tecnologia (MW), leida de los graficos vectoriales de los
+# informes diarios del Coordinador por src/data/cen_daily_reports.py del repositorio
+# Rxyxs/chile-energy-grid-forecasting (2022-2025; columnas date, hour 1-24, termica,
+# hidraulica, solar, eolica, bess).
+REAL_HOURLY_TECH_PATH <- "data/real/cen_generation_hourly_by_tech.csv.gz"
 
 # Peso de cada subestacion en la forma horaria nacional: la solar se concentra en el
 # norte (Atacama/Antofagasta) y la eolica en el sur (Biobio) y el norte grande.
@@ -104,11 +109,35 @@ resolve_repo_path <- function(path) {
   stop(sprintf("No se encontro %s", path))
 }
 
+#' Solar y eolica horarias reales del SEN, alineadas a `datetime` (hora local). La
+#' hora h del informe es el bloque que empieza a las h-1. Las horas que no son
+#' generacion real (la hora que no existe al entrar el horario de verano, que el
+#' grafico dibuja en 0, y el apagon de febrero de 2025: total bajo la mitad de la
+#' mediana del dia) y los dias sin informe quedan NA.
+load_real_hourly_solar_wind <- function(datetime, path = REAL_HOURLY_TECH_PATH) {
+  g <- readr::read_csv(resolve_repo_path(path), show_col_types = FALSE)
+  techs <- intersect(c("termica", "hidraulica", "solar", "eolica", "bess"), names(g))
+  g[techs] <- lapply(g[techs], function(x) ifelse(is.na(x), 0, x))
+  total <- rowSums(g[techs])
+  bad <- total < 0.5 * ave(total, g$date, FUN = median)
+  g$solar[bad] <- NA
+  g$eolica[bad] <- NA
+  key <- sprintf("%s %02d", format(as.Date(g$date)), g$hour - 1)
+  idx <- match(format(datetime, "%Y-%m-%d %H"), key)
+  list(solar_mw = g$solar[idx], wind_mw = g$eolica[idx])
+}
+
 load_real_weather_national <- function(path = REAL_WEATHER_PATH) {
   w <- readr::read_csv(resolve_repo_path(path), show_col_types = FALSE)
   w$wind_frac <- wind_power_fraction(w$wind_speed_ms)
   w$solar_w <- unname(SOLAR_WEIGHTS[w$node])
   w$wind_w <- unname(WIND_WEIGHTS[w$node])
+  # Open-Meteo entrega la radiacion como el promedio de la hora ANTERIOR: el valor
+  # de las 08:00 es el de 07:00-08:00. Se adelanta una hora para que describa el
+  # bloque que empieza en su timestamp, como la generacion. Sin esto la solar
+  # reconstruida quedaba atrasada una hora (ver output/tables/reconstruction_vs_real_hourly.csv).
+  w <- w %>% arrange(node, timestamp) %>% group_by(node) %>%
+    mutate(ghi_w_m2 = dplyr::lead(ghi_w_m2, default = 0)) %>% ungroup()
   w %>%
     mutate(local_hour = format(timestamp, "%Y-%m-%d %H")) %>%
     group_by(local_hour) %>%
@@ -248,6 +277,17 @@ generate_sen_data <- function(start_date, end_date, seed = 42, real = TRUE,
         wind_mw <- pmin(scale_to_daily_energy(wind_mw, day_key, setNames(dt$eolica * 1000, format(dt$date))),
                         WIND_INSTALLED_MW)
       }
+      # Donde hay informe, la solar y la eolica son las HORARIAS reales; la
+      # reconstruccion desde el clima queda solo para los dias sin informe.
+      hourly_path <- tryCatch(resolve_repo_path(REAL_HOURLY_TECH_PATH), error = function(e) NULL)
+      solar_wind_reconstructed <- rep(TRUE, n)
+      if (!is.null(hourly_path)) {
+        hw <- load_real_hourly_solar_wind(datetime, hourly_path)
+        ok <- !is.na(hw$solar_mw) & !is.na(hw$wind_mw)
+        solar_mw[ok] <- hw$solar_mw[ok]
+        wind_mw[ok] <- hw$wind_mw[ok]
+        solar_wind_reconstructed <- !ok
+      }
       cen <- load_real_hourly_demand(datetime)
       demand_mw <- cen$demand_mw
       demand_imputed <- cen$imputed
@@ -268,7 +308,10 @@ generate_sen_data <- function(start_date, end_date, seed = 42, real = TRUE,
     net_demand_mw = round(net_demand_mw, 1)
   )
   if (!real) out$wind_volatility_sigma <- round(garch$sigma, 4)
-  if (real && demand_source == "cen") out$demand_imputed <- demand_imputed
+  if (real && demand_source == "cen") {
+    out$demand_imputed <- demand_imputed
+    out$solar_wind_reconstructed <- solar_wind_reconstructed
+  }
   out
 }
 
