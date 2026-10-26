@@ -102,18 +102,19 @@ menos util metodologicamente.
 
 | # | Alternativa | Resultado | Veredicto |
 |---|---|---|---|
-| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.3880 → 0.3470 | Mejora real, parcial (-10.6%) |
-| 2 | `K` semanal 2 → 6/12/20 (con K diario=12) | ACF(lag24) **empeora** hasta 0.469 | Descartado |
-| 3 | `log(demand_mw)` en vez de nivel | ACF(lag24) = 0.402, sin mejora | Descartado |
+| 1 | `K` diario 4 → 12 (base de Fourier completa, limite de Nyquist para periodo 24) | ACF(lag24): 0.436 → 0.417 | Mejora pequena (-4.4%; -10.6% con la serie semisintetica) |
+| 2 | `K` semanal 2 → 6/12/20 (con K diario=12) | ACF(lag24) = 0.403 / 0.413 / 0.496 | K=6 mejora algo (-7.6% vs. K=4 diario); K=20 empeora. Los armonicos semanales 7 y 14 coinciden con los diarios y `fable` los descarta por colinealidad. Con la serie semisintetica todos empeoraban |
+| 3 | `log(demand_mw)` en vez de nivel (con K diario=12) | ACF(lag24) = 0.395 | **La mejor correccion con datos reales** (-9.4%); con la serie semisintetica no mejoraba (0.402) |
 | 4 | `PDQ(P=1,D=0,Q=1,period=24)`, sin Fourier diario | `fable::ARIMA()` falla: raices caracteristicas inestables | No disponible |
 | 5 | Diferenciacion estacional `D=1` en periodo 24 | Misma falla que #4 | No disponible |
-| 6 | TBATS (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = 0.3979 | Sin mejora sobre la serie anclada a datos reales (+2.6%); con la serie simulada anterior bajaba a 0.159 |
+| 6 | TBATS (estados estacionales dinamicos, sin Fourier ni diferenciacion) | ACF(lag24) = 0.454 | Empeora (+4.0%); con la serie simulada original bajaba a 0.159 |
 
 Las filas 1 y 6 de esta tabla son valores escritos a mano. La tabla calculada de la
 seccion 7 los recomputa desde los modelos guardados en cada render, asi que es ella
 la que manda: si difieren, la de la seccion 7 es la correcta y esta quedo atrasada.
-Las filas 2-5 vienen de ajustes exploratorios que no quedaron en el pipeline
-numerado, y por eso no se recomputan en ningun lado.
+Las filas 2 y 3 se recalcularon sobre la demanda real con ajustes exploratorios que
+no quedaron en el pipeline numerado; las filas 4 y 5 son de la serie semisintetica
+y no se volvieron a correr.
 
 Los intentos #4 y #5 son la misma clase de falla ya documentada en este
 proyecto (ver README, seccion 6, sobre el bug de busqueda automatica de `d`
@@ -232,8 +233,9 @@ cat(sprintf("\nMAPE promedio sobre %d origenes: %.2f%% (desvio: %.2f)\n",
   dia al siguiente.
 - **Ninguna correccion probada elimina el problema.** Aumentar `K` a su limite
   de Nyquist (12) baja el ACF(lag24) de 0.436 a 0.417 (-4.4%, contra -10.6% con
-  la serie semisintetica). TBATS lo sube a 0.454 (+4.0%). Ninguno pasa la
-  prueba de Ljung-Box.
+  la serie semisintetica); modelar el logaritmo lo baja a 0.395 (-9.4%), la mejor
+  correccion con datos reales, y era la que no servia con la serie semisintetica.
+  TBATS lo sube a 0.454 (+4.0%). Ninguno pasa la prueba de Ljung-Box.
 - **Dos alternativas clasicas de libro (PDQ estacional explicito, diferenciacion
   estacional en el lag 24) fallan directamente** en `fable::ARIMA()` sobre esta
   serie especifica, con el mismo tipo de error interno ya documentado en este

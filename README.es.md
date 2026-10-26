@@ -402,8 +402,10 @@ Recalculado sobre la demanda real por `reports/02_Residual_Autocorrelation_Fouri
 | ARIMA + Fourier (K=4, base) | 0,436 | 0 | -- |
 | ARIMA + Fourier (K=12) | 0,417 | 0 | -4,4% |
 | TBATS | 0,454 | 0 | +4,0% |
+| ARIMA + Fourier (K=12), K semanal 6 en vez de 2 | 0,403 | -- | -7,6% |
+| ARIMA + Fourier (K=12) sobre `log(demanda)` | **0,395** | -- | **-9,4%** |
 
-El pico es mayor que con la serie simulada (0,388) y la mejor corrección ayuda menos (-4,4% contra -10,6%); TBATS sigue sin ayudar. Lo que más cambió es lo que significa el pico. Con la serie simulada se podía restar el proceso generador conocido y comprobar que lo que quedaba era ruido blanco (`ACF(lag24) = 0,004`), lo que probaba que el pico era un artefacto del modelo. Con datos reales no hay proceso generador que restar, y parte de la autocorrelación a 24 horas probablemente es genuina: el clima, los feriados y las fallas persisten de un día al siguiente. Un pico en el lag 24 ya no prueba que el modelo esté mal especificado, y Ljung-Box rechaza ruido blanco en los tres modelos.
+El pico es mayor que con la serie simulada (0,388), la corrección de Nyquist ayuda menos (-4,4% contra -10,6%) y TBATS sigue sin ayudar. La mejor corrección con datos reales es la que fallaba con la serie simulada: modelar el logaritmo (-9,4%), probablemente porque en la red real la amplitud diaria crece con el nivel de la demanda, y la escala logarítmica la vuelve constante. Una base semanal más rica ayuda hasta K=6 y empeora con K=20 (0,496). Las dos últimas filas vienen de ajustes exploratorios del reporte, no del pipeline numerado. Lo que más cambió es lo que significa el pico. Con la serie simulada se podía restar el proceso generador conocido y comprobar que lo que quedaba era ruido blanco (`ACF(lag24) = 0,004`), lo que probaba que el pico era un artefacto del modelo. Con datos reales no hay proceso generador que restar, y parte de la autocorrelación a 24 horas probablemente es genuina: el clima, los feriados y las fallas persisten de un día al siguiente. Un pico en el lag 24 ya no prueba que el modelo esté mal especificado, y Ljung-Box rechaza ruido blanco en los tres modelos.
 
 ![Diagnóstico de residuos -- ARIMA + Fourier K=12](output/figures/residuals_arima.png)
 

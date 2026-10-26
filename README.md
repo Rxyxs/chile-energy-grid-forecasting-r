@@ -402,8 +402,10 @@ Recomputed on real demand by `reports/02_Residual_Autocorrelation_Fourier.Rmd`:
 | ARIMA + Fourier (K=4, baseline) | 0.436 | 0 | -- |
 | ARIMA + Fourier (K=12) | 0.417 | 0 | -4.4% |
 | TBATS | 0.454 | 0 | +4.0% |
+| ARIMA + Fourier (K=12), weekly K=6 instead of 2 | 0.403 | -- | -7.6% |
+| ARIMA + Fourier (K=12) on `log(demand)` | **0.395** | -- | **-9.4%** |
 
-The spike is larger than on the simulated series (0.388) and the best fix helps less (-4.4% against -10.6%); TBATS still does not help. What changed most is what the spike means. On the simulated series it was possible to subtract the known generating process and check that what remained was white noise (`ACF(lag24) = 0.004`), which proved the spike was a modelling artifact. On real data there is no generating process to subtract, and part of the 24-hour autocorrelation is probably genuine: weather, holidays and outages persist from one day to the next. A lag-24 spike no longer proves the model is misspecified, and Ljung-Box rejects white noise for all three models.
+The spike is larger than on the simulated series (0.388), the Nyquist fix helps less (-4.4% against -10.6%) and TBATS still does not help. The best fix on real data is the one that failed on the simulated series: modelling the logarithm (-9.4%), probably because the daily swing on the real grid grows with the level of demand, which a log scale makes constant. A richer weekly basis helps up to K=6 and hurts at K=20 (0.496). The last two rows come from exploratory fits in the report, not the numbered pipeline. What changed most is what the spike means. On the simulated series it was possible to subtract the known generating process and check that what remained was white noise (`ACF(lag24) = 0.004`), which proved the spike was a modelling artifact. On real data there is no generating process to subtract, and part of the 24-hour autocorrelation is probably genuine: weather, holidays and outages persist from one day to the next. A lag-24 spike no longer proves the model is misspecified, and Ljung-Box rejects white noise for all three models.
 
 ![Residual diagnostics -- ARIMA + Fourier K=12](output/figures/residuals_arima.png)
 
