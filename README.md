@@ -84,7 +84,7 @@ Hourly solar and wind curtailment (energy the grid could not absorb) by plant, 2
 
 2025 is the hardest year for every method, which is what the definition change above predicts.
 
-**Prediction intervals.** The quantile models promise that 80% of hours fall between P10 and P90. On 2025 the relative ones cover 61.6% (17.9% below, 20.5% above). Calibrating the band by conformal quantile regression (CQR) on 2024 residuals widens it by 64 MW per side and raises coverage to 71.1%, with a mean width of 687 MW. It still falls short of 80% because conformal guarantees assume the calibration year and the test year are exchangeable, and the file's change of definition breaks exactly that.
+**Prediction intervals.** The quantile models promise that 80% of hours fall between P10 and P90. On 2025 the relative ones cover 61.6% (17.9% below, 20.5% above). Calibrating the band by conformal quantile regression (CQR) on 2024 residuals widens it by 64 MW per side and raises coverage to 71.1%, with a mean width of 687 MW. It still falls short of 80% because conformal guarantees assume the calibration year and the test year are exchangeable, and the file's change of definition breaks exactly that. **Adaptive Conformal Inference** (Gibbs & Candès, 2021) closes the gap: it starts from the same 2024 calibration but, after each hour, moves the quantile level by `gamma × (alpha − miss)` using only misses that were already known when that hour was forecast (a 48-hour delay, as in day-ahead operation). Coverage on 2025 reaches **79.6%** (9.5% below, 10.8% above), and the worst month rises from 57.0% with the fixed margin to **75.5%**. The cost is width: 988 MW on average instead of 687, because the 2025 hours the fixed band missed really are that uncertain. `gamma = 0.005` was fixed before looking at results (`aci_margins`, `R/11_ml_day_ahead.R`).
 
 **What drives the forecast.** By gain, the mean of the same hour over the last four weeks (49%) and the same hour a week earlier (23%) carry most of it, then the hour of day, two weeks earlier, weekday, day of year and the holiday flag.
 
@@ -517,7 +517,7 @@ chile-energy-grid-forecasting-r/
 │   ├── 08_cross_validation.R           # holdout + rolling-origin CV (daily + hourly), MAPE/RMSE/MASE
 │   ├── 09_generate_plots.R             # residuals, forecast bands, volatility
 │   ├── 10_real_hourly_data.R           # real hourly CEN generation 2018-2025: parsing, DST, anomalies
-│   ├── 11_ml_day_ahead.R               # LightGBM day-ahead: 7 losses, 2 target forms, CQR, yearly CV
+│   ├── 11_ml_day_ahead.R               # LightGBM day-ahead: 7 losses, 2 target forms, CQR + ACI, yearly CV
 │   ├── 12_real_figures.R               # figures of the real-data section
 │   └── 13_cen_daily_reports.R          # daily generation by technology from the CEN reports + curtailment
 ├── reports/

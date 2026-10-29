@@ -191,6 +191,28 @@ cqr_margin <- function(y, q_lo, q_hi, coverage = 0.8) {
   as.numeric(quantile(score, min(1, ceiling((n + 1) * coverage) / n), type = 1))
 }
 
+#' Adaptive Conformal Inference (Gibbs y Candes, 2021) con retardo: el nivel del
+#' cuantil de la hora i se ajusta con los fallos de las horas que ya se conocian
+#' al pronosticarla (i - delay o antes), alpha_i = alpha + gamma * suma(alpha - fallo).
+#' Un margen fijo calibrado en 2024 se usa todo 2025; este sigue la estacion.
+#' `y`, `q_lo`, `q_hi` en orden temporal, sin NA. gamma fijado antes de mirar resultados.
+aci_margins <- function(y, q_lo, q_hi, calib_scores, coverage = 0.8, gamma = 0.005, delay = 48) {
+  alpha <- 1 - coverage
+  n <- length(y)
+  ncal <- length(calib_scores)
+  margin <- numeric(n)
+  miss <- numeric(n)
+  drift <- 0
+  for (i in seq_len(n)) {
+    if (i > delay) drift <- drift + gamma * (alpha - miss[i - delay])
+    a <- alpha + drift
+    level <- min(1, max(0, ceiling((ncal + 1) * (1 - a)) / ncal))
+    margin[i] <- if (a <= 0) max(calib_scores) else as.numeric(quantile(calib_scores, level, type = 1))
+    miss[i] <- as.numeric(y[i] < q_lo[i] - margin[i] | y[i] > q_hi[i] + margin[i])
+  }
+  margin
+}
+
 SPECS <- list(
   l2 = list(objective = "regression"), l1 = list(objective = "regression_l1"),
   huber = list(objective = "huber"), asym_l2 = list(custom = asym_l2),
@@ -265,6 +287,23 @@ main <- function() {
     preds[[paste0(tag, "cqr_hi")]] <- hi
     intervals[[paste0(tag, "raw")]] <- interval_of(preds[[paste0(tag, "q10")]], preds[[paste0(tag, "q90")]])
     intervals[[paste0(tag, "cqr")]] <- c(interval_of(lo, hi), list(margin_mw = margin))
+    # ACI: mismo modelo y mismos puntajes de calibracion 2024, margen que se ajusta en 2025.
+    q_lo <- preds[[paste0(tag, "q10_trainonly")]]; q_hi <- preds[[paste0(tag, "q90_trainonly")]]
+    calib <- pmax(valid_preds[[paste0(tag, "q10")]] - valid_preds$actual, valid_preds$actual - valid_preds[[paste0(tag, "q90")]])
+    idx <- which(ok)[order(preds$ts_utc[ok])]
+    m_aci <- rep(NA_real_, nrow(preds))
+    m_aci[idx] <- aci_margins(preds$actual[idx], q_lo[idx], q_hi[idx], calib)
+    preds[[paste0(tag, "aci_lo")]] <- q_lo - m_aci
+    preds[[paste0(tag, "aci_hi")]] <- q_hi + m_aci
+    intervals[[paste0(tag, "aci")]] <- c(interval_of(q_lo - m_aci, q_hi + m_aci),
+                                          list(margin_mw_mean = mean(m_aci, na.rm = TRUE)))
+    month <- format(preds$local[ok], "%Y-%m")
+    for (kind in c("cqr", "aci")) {
+      lo_k <- preds[[paste0(tag, kind, "_lo")]][ok]; hi_k <- preds[[paste0(tag, kind, "_hi")]][ok]
+      cov_m <- tapply(preds$actual[ok] >= lo_k & preds$actual[ok] <= hi_k, month, mean)
+      intervals[[paste0(tag, kind)]]$worst_month_coverage <- min(cov_m)
+      intervals[[paste0(tag, kind)]]$best_month_coverage <- max(cov_m)
+    }
   }
 
   # Validacion cruzada por anos: entrenar hasta Y-2, validar Y-1, probar Y.
