@@ -50,7 +50,20 @@
       "mean_width_mw": 794.509581,
       "pinball_lo": 65.413783,
       "pinball_hi": 84.252546,
-      "margin_mw": 97.031783
+      "margin_mw": 97.031783,
+      "worst_month_coverage": 0.53629,
+      "best_month_coverage": 0.854809
+    },
+    "lgb_aci": {
+      "coverage": 0.795178,
+      "below": 0.070064,
+      "above": 0.134758,
+      "mean_width_mw": 1032.345607,
+      "pinball_lo": 70.442983,
+      "pinball_hi": 79.572999,
+      "margin_mw_mean": 215.949796,
+      "worst_month_coverage": 0.766129,
+      "best_month_coverage": 0.846552
     },
     "lgb_rel_raw": {
       "coverage": 0.616496,
@@ -67,7 +80,20 @@
       "mean_width_mw": 686.575685,
       "pinball_lo": 63.868773,
       "pinball_hi": 63.974779,
-      "margin_mw": 63.588636
+      "margin_mw": 63.588636,
+      "worst_month_coverage": 0.569892,
+      "best_month_coverage": 0.802885
+    },
+    "lgb_rel_aci": {
+      "coverage": 0.796133,
+      "below": 0.095369,
+      "above": 0.108498,
+      "mean_width_mw": 988.206914,
+      "pinball_lo": 70.777609,
+      "pinball_hi": 67.152821,
+      "margin_mw_mean": 214.40425,
+      "worst_month_coverage": 0.754808,
+      "best_month_coverage": 0.831034
     }
   },
   "mase_scale_mw": 268.034965,

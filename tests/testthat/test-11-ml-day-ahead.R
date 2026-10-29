@@ -63,3 +63,16 @@ test_that("the conformal margin makes the calibration interval cover as promised
   expect_gte(mean(y >= -0.5 - m & y <= 0.5 + m), 0.8)
   expect_lt(mean(y >= -0.5 - m & y <= 0.5 + m), 0.81)
 })
+
+test_that("aci_margins widens the interval under drift, using only misses already known", {
+  set.seed(1)
+  n <- 3000
+  y <- rnorm(n, sd = seq(1, 3, length.out = n))   # el ruido crece: un margen fijo queda corto
+  zeros <- rep(0, n)
+  calib <- abs(rnorm(500))
+  m <- aci_margins(y, zeros, zeros, calib, coverage = 0.8, delay = 48)
+  late <- 2001:n
+  expect_gt(mean(abs(y[late]) <= m[late]), mean(abs(y[late]) <= quantile(calib, 0.8)) + 0.1)
+  # Las primeras `delay` horas no tienen ningun fallo conocido: margen de calibracion puro.
+  expect_true(all(m[1:48] == m[1]))
+})
